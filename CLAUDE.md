@@ -28,10 +28,14 @@ homeassistant/sensor/{node_id}/{suffix}/config — HA auto-discovery (retained)
 
 ## Switch Inventory (SNMP targets)
 
-| Switch | IP | Community | MIB |
-|--------|----|-----------|-----|
-| M4300-24X | 10.1.5.13 | public | boxServices (.6 fans, .7/.15 thermal, .8 PSU) |
-| GSM7252PS-S1 | 10.1.5.23 | public | FASTPATH PoE (4526.10.15), port status |
+| Switch | IP | Community | OID prefix | MIB |
+|--------|----|-----------|------------|-----|
+| M4300-24X | 10.1.5.13 | public | 4526.10 | boxServices (.43.1.6 fans, .43.1.15 thermal, .43.1.8 PSU) |
+| GSM7252PS-S1 | 10.1.5.23 | public | 4526.10 | FASTPATH PoE (.15.1.1.1.2 per-port mW) |
+| S3300-52X-PoE+ | 10.1.5.11 | public | 4526.11 | boxServices + PoE (same MIB structure, different prefix) |
+
+The Netgear enterprise OID split: `4526.10` = Fully Managed (M4300, GSM7252PS),
+`4526.11` = Smart Managed Pro (S3300). Same MIB structure within each subtree.
 
 ## Development
 
