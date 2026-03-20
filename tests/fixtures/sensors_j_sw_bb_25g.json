@@ -1,0 +1,536 @@
+{
+  "jc42-i2c-0-1b": {
+    "Adapter": "SMBus I801 adapter at f000",
+    "temp1": {
+      "temp1_input": 47.937,
+      "temp1_max": 0.0,
+      "temp1_max_hyst": 0.0,
+      "temp1_min": 0.0,
+      "temp1_crit": 0.0,
+      "temp1_crit_hyst": 0.0,
+      "temp1_max_alarm": 1.0,
+      "temp1_min_alarm": 0.0,
+      "temp1_crit_alarm": 1.0
+    }
+  },
+  "acpitz-acpi-0": {
+    "Adapter": "ACPI interface",
+    "temp1": {
+      "temp1_input": 27.8
+    },
+    "temp2": {
+      "temp2_input": 29.8
+    }
+  },
+  "coretemp-isa-0000": {
+    "Adapter": "ISA adapter",
+    "Package id 0": {
+      "temp1_input": 57.0,
+      "temp1_max": 87.0,
+      "temp1_crit": 105.0,
+      "temp1_crit_alarm": 0.0
+    },
+    "Core 0": {
+      "temp2_input": 57.0,
+      "temp2_max": 87.0,
+      "temp2_crit": 105.0,
+      "temp2_crit_alarm": 0.0
+    },
+    "Core 1": {
+      "temp3_input": 53.0,
+      "temp3_max": 87.0,
+      "temp3_crit": 105.0,
+      "temp3_crit_alarm": 0.0
+    }
+  },
+  "mlxsw-pci-0300": {
+    "Adapter": "PCI adapter",
+    "fan1": {
+      "fan1_input": 6355.0,
+      "fan1_fault": 0.0
+    },
+    "fan2": {
+      "fan2_input": 5378.0,
+      "fan2_fault": 0.0
+    },
+    "fan3": {
+      "fan3_input": 6415.0,
+      "fan3_fault": 0.0
+    },
+    "fan4": {
+      "fan4_input": 5399.0,
+      "fan4_fault": 0.0
+    },
+    "fan5": {
+      "fan5_input": 6326.0,
+      "fan5_fault": 0.0
+    },
+    "fan6": {
+      "fan6_input": 5486.0,
+      "fan6_fault": 0.0
+    },
+    "fan7": {
+      "fan7_input": 6297.0,
+      "fan7_fault": 0.0
+    },
+    "fan8": {
+      "fan8_input": 5378.0,
+      "fan8_fault": 0.0
+    },
+    "temp1": {
+      "temp1_input": 60.0,
+      "temp1_highest": 73.0
+    },
+    "front panel 001": {
+      "temp2_input": 0.0,
+      "temp2_crit": 0.0,
+      "temp2_emergency": 0.0,
+      "temp2_crit_alarm": 0.0,
+      "temp2_fault": 0.0,
+      "temp2_emergency_alarm": 0.0
+    },
+    "front panel 002": {
+      "temp3_input": 0.0,
+      "temp3_crit": 0.0,
+      "temp3_emergency": 0.0,
+      "temp3_crit_alarm": 0.0,
+      "temp3_fault": 0.0,
+      "temp3_emergency_alarm": 0.0
+    },
+    "front panel 003": {
+      "temp4_input": 0.0,
+      "temp4_crit": 0.0,
+      "temp4_emergency": 0.0,
+      "temp4_crit_alarm": 0.0,
+      "temp4_fault": 0.0,
+      "temp4_emergency_alarm": 0.0
+    },
+    "front panel 004": {
+      "temp5_input": 0.0,
+      "temp5_crit": 0.0,
+      "temp5_emergency": 0.0,
+      "temp5_crit_alarm": 0.0,
+      "temp5_fault": 0.0,
+      "temp5_emergency_alarm": 0.0
+    },
+    "front panel 005": {
+      "temp6_input": 0.0,
+      "temp6_crit": 0.0,
+      "temp6_emergency": 0.0,
+      "temp6_crit_alarm": 0.0,
+      "temp6_fault": 0.0,
+      "temp6_emergency_alarm": 0.0
+    },
+    "front panel 006": {
+      "temp7_input": 0.0,
+      "temp7_crit": 0.0,
+      "temp7_emergency": 0.0,
+      "temp7_crit_alarm": 0.0,
+      "temp7_fault": 0.0,
+      "temp7_emergency_alarm": 0.0
+    },
+    "front panel 007": {
+      "temp8_input": 0.0,
+      "temp8_crit": 0.0,
+      "temp8_emergency": 0.0,
+      "temp8_crit_alarm": 0.0,
+      "temp8_fault": 0.0,
+      "temp8_emergency_alarm": 0.0
+    },
+    "front panel 008": {
+      "temp9_input": 0.0,
+      "temp9_crit": 0.0,
+      "temp9_emergency": 0.0,
+      "temp9_crit_alarm": 0.0,
+      "temp9_fault": 0.0,
+      "temp9_emergency_alarm": 0.0
+    },
+    "front panel 009": {
+      "temp10_input": 0.0,
+      "temp10_crit": 0.0,
+      "temp10_emergency": 0.0,
+      "temp10_crit_alarm": 0.0,
+      "temp10_fault": 0.0,
+      "temp10_emergency_alarm": 0.0
+    },
+    "front panel 010": {
+      "temp11_input": 0.0,
+      "temp11_crit": 0.0,
+      "temp11_emergency": 0.0,
+      "temp11_crit_alarm": 0.0,
+      "temp11_fault": 0.0,
+      "temp11_emergency_alarm": 0.0
+    },
+    "front panel 011": {
+      "temp12_input": 0.0,
+      "temp12_crit": 0.0,
+      "temp12_emergency": 0.0,
+      "temp12_crit_alarm": 0.0,
+      "temp12_fault": 0.0,
+      "temp12_emergency_alarm": 0.0
+    },
+    "front panel 012": {
+      "temp13_input": 0.0,
+      "temp13_crit": 0.0,
+      "temp13_emergency": 0.0,
+      "temp13_crit_alarm": 0.0,
+      "temp13_fault": 0.0,
+      "temp13_emergency_alarm": 0.0
+    },
+    "front panel 013": {
+      "temp14_input": 0.0,
+      "temp14_crit": 0.0,
+      "temp14_emergency": 0.0,
+      "temp14_crit_alarm": 0.0,
+      "temp14_fault": 0.0,
+      "temp14_emergency_alarm": 0.0
+    },
+    "front panel 014": {
+      "temp15_input": 0.0,
+      "temp15_crit": 0.0,
+      "temp15_emergency": 0.0,
+      "temp15_crit_alarm": 0.0,
+      "temp15_fault": 0.0,
+      "temp15_emergency_alarm": 0.0
+    },
+    "front panel 015": {
+      "temp16_input": 0.0,
+      "temp16_crit": 0.0,
+      "temp16_emergency": 0.0,
+      "temp16_crit_alarm": 0.0,
+      "temp16_fault": 0.0,
+      "temp16_emergency_alarm": 0.0
+    },
+    "front panel 016": {
+      "temp17_input": 0.0,
+      "temp17_crit": 0.0,
+      "temp17_emergency": 0.0,
+      "temp17_crit_alarm": 0.0,
+      "temp17_fault": 0.0,
+      "temp17_emergency_alarm": 0.0
+    },
+    "front panel 017": {
+      "temp18_input": 0.0,
+      "temp18_crit": 0.0,
+      "temp18_emergency": 0.0,
+      "temp18_crit_alarm": 0.0,
+      "temp18_fault": 0.0,
+      "temp18_emergency_alarm": 0.0
+    },
+    "front panel 018": {
+      "temp19_input": 0.0,
+      "temp19_crit": 0.0,
+      "temp19_emergency": 0.0,
+      "temp19_crit_alarm": 0.0,
+      "temp19_fault": 0.0,
+      "temp19_emergency_alarm": 0.0
+    },
+    "front panel 019": {
+      "temp20_input": 0.0,
+      "temp20_crit": 0.0,
+      "temp20_emergency": 0.0,
+      "temp20_crit_alarm": 0.0,
+      "temp20_fault": 0.0,
+      "temp20_emergency_alarm": 0.0
+    },
+    "front panel 020": {
+      "temp21_input": 0.0,
+      "temp21_crit": 0.0,
+      "temp21_emergency": 0.0,
+      "temp21_crit_alarm": 0.0,
+      "temp21_fault": 0.0,
+      "temp21_emergency_alarm": 0.0
+    },
+    "front panel 021": {
+      "temp22_input": 0.0,
+      "temp22_crit": 0.0,
+      "temp22_emergency": 0.0,
+      "temp22_crit_alarm": 0.0,
+      "temp22_fault": 0.0,
+      "temp22_emergency_alarm": 0.0
+    },
+    "front panel 022": {
+      "temp23_input": 0.0,
+      "temp23_crit": 0.0,
+      "temp23_emergency": 0.0,
+      "temp23_crit_alarm": 0.0,
+      "temp23_fault": 0.0,
+      "temp23_emergency_alarm": 0.0
+    },
+    "front panel 023": {
+      "temp24_input": 0.0,
+      "temp24_crit": 0.0,
+      "temp24_emergency": 0.0,
+      "temp24_crit_alarm": 0.0,
+      "temp24_fault": 0.0,
+      "temp24_emergency_alarm": 0.0
+    },
+    "front panel 024": {
+      "temp25_input": 0.0,
+      "temp25_crit": 0.0,
+      "temp25_emergency": 0.0,
+      "temp25_crit_alarm": 0.0,
+      "temp25_fault": 0.0,
+      "temp25_emergency_alarm": 0.0
+    },
+    "front panel 025": {
+      "temp26_input": 0.0,
+      "temp26_crit": 0.0,
+      "temp26_emergency": 0.0,
+      "temp26_crit_alarm": 0.0,
+      "temp26_fault": 0.0,
+      "temp26_emergency_alarm": 0.0
+    },
+    "front panel 026": {
+      "temp27_input": 0.0,
+      "temp27_crit": 0.0,
+      "temp27_emergency": 0.0,
+      "temp27_crit_alarm": 0.0,
+      "temp27_fault": 0.0,
+      "temp27_emergency_alarm": 0.0
+    },
+    "front panel 027": {
+      "temp28_input": 0.0,
+      "temp28_crit": 0.0,
+      "temp28_emergency": 0.0,
+      "temp28_crit_alarm": 0.0,
+      "temp28_fault": 0.0,
+      "temp28_emergency_alarm": 0.0
+    },
+    "front panel 028": {
+      "temp29_input": 0.0,
+      "temp29_crit": 0.0,
+      "temp29_emergency": 0.0,
+      "temp29_crit_alarm": 0.0,
+      "temp29_fault": 0.0,
+      "temp29_emergency_alarm": 0.0
+    },
+    "front panel 029": {
+      "temp30_input": 0.0,
+      "temp30_crit": 0.0,
+      "temp30_emergency": 0.0,
+      "temp30_crit_alarm": 0.0,
+      "temp30_fault": 0.0,
+      "temp30_emergency_alarm": 0.0
+    },
+    "front panel 030": {
+      "temp31_input": 0.0,
+      "temp31_crit": 0.0,
+      "temp31_emergency": 0.0,
+      "temp31_crit_alarm": 0.0,
+      "temp31_fault": 0.0,
+      "temp31_emergency_alarm": 0.0
+    },
+    "front panel 031": {
+      "temp32_input": 0.0,
+      "temp32_crit": 0.0,
+      "temp32_emergency": 0.0,
+      "temp32_crit_alarm": 0.0,
+      "temp32_fault": 0.0,
+      "temp32_emergency_alarm": 0.0
+    },
+    "front panel 032": {
+      "temp33_input": 0.0,
+      "temp33_crit": 0.0,
+      "temp33_emergency": 0.0,
+      "temp33_crit_alarm": 0.0,
+      "temp33_fault": 0.0,
+      "temp33_emergency_alarm": 0.0
+    },
+    "front panel 033": {
+      "temp34_input": 0.0,
+      "temp34_crit": 0.0,
+      "temp34_emergency": 0.0,
+      "temp34_crit_alarm": 0.0,
+      "temp34_fault": 0.0,
+      "temp34_emergency_alarm": 0.0
+    },
+    "front panel 034": {
+      "temp35_input": 0.0,
+      "temp35_crit": 0.0,
+      "temp35_emergency": 0.0,
+      "temp35_crit_alarm": 0.0,
+      "temp35_fault": 0.0,
+      "temp35_emergency_alarm": 0.0
+    },
+    "front panel 035": {
+      "temp36_input": 0.0,
+      "temp36_crit": 0.0,
+      "temp36_emergency": 0.0,
+      "temp36_crit_alarm": 0.0,
+      "temp36_fault": 0.0,
+      "temp36_emergency_alarm": 0.0
+    },
+    "front panel 036": {
+      "temp37_input": 0.0,
+      "temp37_crit": 0.0,
+      "temp37_emergency": 0.0,
+      "temp37_crit_alarm": 0.0,
+      "temp37_fault": 0.0,
+      "temp37_emergency_alarm": 0.0
+    },
+    "front panel 037": {
+      "temp38_input": 0.0,
+      "temp38_crit": 0.0,
+      "temp38_emergency": 0.0,
+      "temp38_crit_alarm": 0.0,
+      "temp38_fault": 0.0,
+      "temp38_emergency_alarm": 0.0
+    },
+    "front panel 038": {
+      "temp39_input": 0.0,
+      "temp39_crit": 0.0,
+      "temp39_emergency": 0.0,
+      "temp39_crit_alarm": 0.0,
+      "temp39_fault": 0.0,
+      "temp39_emergency_alarm": 0.0
+    },
+    "front panel 039": {
+      "temp40_input": 0.0,
+      "temp40_crit": 0.0,
+      "temp40_emergency": 0.0,
+      "temp40_crit_alarm": 0.0,
+      "temp40_fault": 0.0,
+      "temp40_emergency_alarm": 0.0
+    },
+    "front panel 040": {
+      "temp41_input": 0.0,
+      "temp41_crit": 0.0,
+      "temp41_emergency": 0.0,
+      "temp41_crit_alarm": 0.0,
+      "temp41_fault": 0.0,
+      "temp41_emergency_alarm": 0.0
+    },
+    "front panel 041": {
+      "temp42_input": 0.0,
+      "temp42_crit": 0.0,
+      "temp42_emergency": 0.0,
+      "temp42_crit_alarm": 0.0,
+      "temp42_fault": 0.0,
+      "temp42_emergency_alarm": 0.0
+    },
+    "front panel 042": {
+      "temp43_input": 0.0,
+      "temp43_crit": 0.0,
+      "temp43_emergency": 0.0,
+      "temp43_crit_alarm": 0.0,
+      "temp43_fault": 0.0,
+      "temp43_emergency_alarm": 0.0
+    },
+    "front panel 043": {
+      "temp44_input": 0.0,
+      "temp44_crit": 0.0,
+      "temp44_emergency": 0.0,
+      "temp44_crit_alarm": 0.0,
+      "temp44_fault": 0.0,
+      "temp44_emergency_alarm": 0.0
+    },
+    "front panel 044": {
+      "temp45_input": 0.0,
+      "temp45_crit": 0.0,
+      "temp45_emergency": 0.0,
+      "temp45_crit_alarm": 0.0,
+      "temp45_fault": 0.0,
+      "temp45_emergency_alarm": 0.0
+    },
+    "front panel 045": {
+      "temp46_input": 0.0,
+      "temp46_crit": 0.0,
+      "temp46_emergency": 0.0,
+      "temp46_crit_alarm": 0.0,
+      "temp46_fault": 0.0,
+      "temp46_emergency_alarm": 0.0
+    },
+    "front panel 046": {
+      "temp47_input": 0.0,
+      "temp47_crit": 0.0,
+      "temp47_emergency": 0.0,
+      "temp47_crit_alarm": 0.0,
+      "temp47_fault": 0.0,
+      "temp47_emergency_alarm": 0.0
+    },
+    "front panel 047": {
+      "temp48_input": 0.0,
+      "temp48_crit": 0.0,
+      "temp48_emergency": 0.0,
+      "temp48_crit_alarm": 0.0,
+      "temp48_fault": 0.0,
+      "temp48_emergency_alarm": 0.0
+    },
+    "front panel 048": {
+      "temp49_input": 0.0,
+      "temp49_crit": 0.0,
+      "temp49_emergency": 0.0,
+      "temp49_crit_alarm": 0.0,
+      "temp49_fault": 0.0,
+      "temp49_emergency_alarm": 0.0
+    },
+    "front panel 049": {
+      "temp50_input": 0.0,
+      "temp50_crit": 0.0,
+      "temp50_emergency": 0.0,
+      "temp50_crit_alarm": 0.0,
+      "temp50_fault": 0.0,
+      "temp50_emergency_alarm": 0.0
+    },
+    "front panel 050": {
+      "temp51_input": 0.0,
+      "temp51_crit": 0.0,
+      "temp51_emergency": 0.0,
+      "temp51_crit_alarm": 0.0,
+      "temp51_fault": 0.0,
+      "temp51_emergency_alarm": 0.0
+    },
+    "front panel 051": {
+      "temp52_input": 0.0,
+      "temp52_crit": 0.0,
+      "temp52_emergency": 0.0,
+      "temp52_crit_alarm": 0.0,
+      "temp52_fault": 0.0,
+      "temp52_emergency_alarm": 0.0
+    },
+    "front panel 052": {
+      "temp53_input": 0.0,
+      "temp53_crit": 0.0,
+      "temp53_emergency": 0.0,
+      "temp53_crit_alarm": 0.0,
+      "temp53_fault": 0.0,
+      "temp53_emergency_alarm": 0.0
+    },
+    "front panel 053": {
+      "temp54_input": 0.0,
+      "temp54_crit": 0.0,
+      "temp54_emergency": 0.0,
+      "temp54_crit_alarm": 0.0,
+      "temp54_fault": 0.0,
+      "temp54_emergency_alarm": 0.0
+    },
+    "front panel 054": {
+      "temp55_input": 0.0,
+      "temp55_crit": 0.0,
+      "temp55_emergency": 0.0,
+      "temp55_crit_alarm": 0.0,
+      "temp55_fault": 0.0,
+      "temp55_emergency_alarm": 0.0
+    },
+    "front panel 055": {
+      "temp56_input": 0.0,
+      "temp56_crit": 0.0,
+      "temp56_emergency": 0.0,
+      "temp56_crit_alarm": 0.0,
+      "temp56_fault": 0.0,
+      "temp56_emergency_alarm": 0.0
+    },
+    "front panel 056": {
+      "temp57_input": 0.0,
+      "temp57_crit": 0.0,
+      "temp57_emergency": 0.0,
+      "temp57_crit_alarm": 0.0,
+      "temp57_fault": 0.0,
+      "temp57_emergency_alarm": 0.0
+    },
+    "pwm1": {
+      "pwm1": 25.5
+    }
+  }
+}
