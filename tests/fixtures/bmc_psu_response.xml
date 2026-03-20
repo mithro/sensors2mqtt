@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<IPMI>
+  <PSInfo at_w_PSTimeoutValue="0" at_b_PSTimeoutEnable="0" BBP_TIMEOUT_VALUE="0" TPW="0" NPR="0" ARR="0" PCO="718">
+    <PSItem a_b_PS_Status_I2C="1" IsPowerSupply="1" IsBBP="0" acInVoltage="230 (V)" acInCurrent="1.660 (A)" dc12OutVoltage="12.2 (V)" dc12OutCurrent="27.812 (A)" temp1="43 C / 109 F" temp2="72 C / 161 F" fan1="13888 RPM" fan2="11744 RPM" dcOutPower="341 (W)" acInPower="382 (W)" maxPower="2000 (W)" PSname="P2K5ACJ35IT2500"/>
+    <PSItem a_b_PS_Status_I2C="1" IsPowerSupply="1" IsBBP="0" acInVoltage="229 (V)" acInCurrent="1.722 (A)" dc12OutVoltage="12.2 (V)" dc12OutCurrent="30.812 (A)" temp1="41 C / 105 F" temp2="71 C / 159 F" fan1="13984 RPM" fan2="11616 RPM" dcOutPower="377 (W)" acInPower="396 (W)" maxPower="2000 (W)" PSname="P2K5ACJ02DT1634"/>
+    <PSItem a_b_PS_Status_I2C="ff" IsPowerSupply="0" IsBBP="0"/>
+    <PSItem a_b_PS_Status_I2C="ff" IsPowerSupply="0" IsBBP="0"/>
+  </PSInfo>
+</IPMI>
+

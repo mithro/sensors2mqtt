@@ -1,0 +1,68 @@
+CPU1 Temp        | 43 degrees C      | ok
+CPU2 Temp        | 49 degrees C      | ok
+PCH Temp         | 45 degrees C      | ok
+Inlet Temp       | 36 degrees C      | ok
+System Temp      | 38 degrees C      | ok
+Peripheral Temp  | 46 degrees C      | ok
+VRMCpu1IN Temp   | 49 degrees C      | ok
+VRMCpu1IO Temp   | 34 degrees C      | ok
+VRMCpu2IN Temp   | 52 degrees C      | ok
+VRMCpu2IO Temp   | 45 degrees C      | ok
+VRMP1ABC Temp    | 43 degrees C      | ok
+VRMP1DEF Temp    | 37 degrees C      | ok
+VRMP2ABC Temp    | 45 degrees C      | ok
+VRMP2DEF Temp    | 45 degrees C      | ok
+P1-DIMMA1 Temp   | 44 degrees C      | ok
+P1-DIMMA2 Temp   | no reading        | ns
+P1-DIMMB1 Temp   | 44 degrees C      | ok
+P1-DIMMB2 Temp   | no reading        | ns
+P1-DIMMC1 Temp   | no reading        | ns
+P1-DIMMC2 Temp   | no reading        | ns
+P1-DIMMD1 Temp   | 43 degrees C      | ok
+P1-DIMMD2 Temp   | no reading        | ns
+P1-DIMME1 Temp   | 44 degrees C      | ok
+P1-DIMME2 Temp   | no reading        | ns
+P1-DIMMF1 Temp   | no reading        | ns
+P1-DIMMF2 Temp   | no reading        | ns
+P2-DIMMA1 Temp   | 52 degrees C      | ok
+P2-DIMMA2 Temp   | no reading        | ns
+P2-DIMMB1 Temp   | 50 degrees C      | ok
+P2-DIMMB2 Temp   | no reading        | ns
+P2-DIMMC1 Temp   | no reading        | ns
+P2-DIMMC2 Temp   | no reading        | ns
+P2-DIMMD1 Temp   | 48 degrees C      | ok
+P2-DIMMD2 Temp   | no reading        | ns
+P2-DIMME1 Temp   | 46 degrees C      | ok
+P2-DIMME2 Temp   | no reading        | ns
+P2-DIMMF1 Temp   | no reading        | ns
+P2-DIMMF2 Temp   | no reading        | ns
+FAN1             | 14200 RPM         | ok
+FAN2             | 14400 RPM         | ok
+FAN3             | 14300 RPM         | ok
+FAN4             | no reading        | ns
+FAN5             | 14300 RPM         | ok
+12V              | 12.07 Volts       | ok
+5VCC             | 4.98 Volts        | ok
+3.3VCC           | 3.25 Volts        | ok
+VBAT             | 0x04              | ok
+Vcpu1            | 1.81 Volts        | ok
+Vcpu2            | 1.81 Volts        | ok
+VDimmP1ABC       | 1.22 Volts        | ok
+VDimmP1DEF       | 1.21 Volts        | ok
+VDimmP2ABC       | 1.22 Volts        | ok
+VDimmP2DEF       | 1.22 Volts        | ok
+5VSB             | 5.08 Volts        | ok
+3.3VSB           | 3.21 Volts        | ok
+1.8V PCH         | 1.83 Volts        | ok
+PVNN PCH         | 1.01 Volts        | ok
+1.05V PCH        | 1.05 Volts        | ok
+Chassis Intru    | 0x00              | ok
+PW Consumption   | 725 Watts         | ok
+HDD Temp         | 46 degrees C      | ok
+AOC_NIC1_Temp    | 97 degrees C      | nc
+Expander1 Temp   | 57 degrees C      | ok
+BPN-1 Temp       | 38 degrees C      | ok
+Expander2 Temp   | 58 degrees C      | ok
+AOC_SAS Temp     | 66 degrees C      | ok
+BPN-2 Temp       | 40 degrees C      | ok
+HDD Status       | 0x01              | ok
