@@ -1,0 +1,16 @@
+[Unit]
+Description=sensors2mqtt IPMI SDR collector (big-storage)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/sensors2mqtt/bin/python -m sensors2mqtt.collector.ipmi_sdr
+Restart=always
+RestartSec=10
+Environment=MQTT_HOST=ha.welland.mithis.com
+Environment=BMC_HOST=10.1.5.150
+Environment=POLL_INTERVAL=30
+
+[Install]
+WantedBy=multi-user.target
