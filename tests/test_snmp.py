@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from sensors2mqtt.collector.snmp import (
     GSM7252PS_S1,
     M4300_24X,
+    S3300,
     SWITCHES,
     SnmpCollector,
     parse_snmpget_value,
@@ -67,6 +68,20 @@ class TestParseSnmpwalk:
         indices = {idx for idx, _ in result}
         assert len(indices) >= 48
 
+    def test_fixture_s3300_fans(self):
+        text = (FIXTURES / "snmpwalk_s3300_fans.txt").read_text()
+        result = parse_snmpwalk(text)
+        assert len(result) > 0
+        speeds = [(idx, val) for idx, val in result if val.isdigit() and int(val) > 100]
+        assert len(speeds) >= 3  # Three fans
+
+    def test_fixture_s3300_poe(self):
+        text = (FIXTURES / "snmpwalk_s3300_poe.txt").read_text()
+        result = parse_snmpwalk(text)
+        assert len(result) > 0
+        indices = {idx for idx, _ in result}
+        assert len(indices) >= 48
+
 
 class TestSnmpgetValue:
     def test_int(self):
@@ -104,11 +119,35 @@ class TestSwitchDefinitions:
         assert walk.min_index == 1
         assert walk.max_index == 48
 
+    def test_s3300_has_sensors(self):
+        assert len(S3300.sensors) >= 5
+        suffixes = {s.suffix for s in S3300.sensors}
+        assert "fan1_rpm" in suffixes
+        assert "fan2_rpm" in suffixes
+        assert "fan3_rpm" in suffixes
+        assert "temp" in suffixes
+        assert "psu_power" in suffixes
+
+    def test_s3300_has_walk_sensors(self):
+        assert len(S3300.walk_sensors) >= 1
+        walk = S3300.walk_sensors[0]
+        assert "poe" in walk.suffix_template
+
+    def test_s3300_uses_dot11_oids(self):
+        """S3300 uses 4526.11 (Smart Managed Pro), not 4526.10."""
+        for sensor in S3300.sensors:
+            assert ".4526.11." in sensor.oid, (
+                f"{sensor.suffix} OID should use .4526.11.: {sensor.oid}"
+            )
+        for walk in S3300.walk_sensors:
+            assert ".4526.11." in walk.base_oid
+
     def test_switches_list(self):
-        assert len(SWITCHES) == 2
+        assert len(SWITCHES) == 3
         ids = {s.node_id for s in SWITCHES}
         assert "m4300_24x" in ids
         assert "gsm7252ps_s1" in ids
+        assert "s3300" in ids
 
 
 class TestSnmpCollector:

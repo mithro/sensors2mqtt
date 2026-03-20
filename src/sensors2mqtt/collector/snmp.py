@@ -172,8 +172,64 @@ GSM7252PS_S1 = SwitchConfig(
     ],
 )
 
+# ---------------------------------------------------------------------------
+# S3300 (GSM7228PS) switch definition
+# ---------------------------------------------------------------------------
+
+# S3300 uses 4526.11 (Smart Managed Pro) instead of 4526.10 (Fully Managed)
+_S3300_BOX = "1.3.6.1.4.1.4526.11.43.1"
+_S3300_POE = "1.3.6.1.4.1.4526.11.15.1.1.1"
+
+S3300 = SwitchConfig(
+    node_id="s3300",
+    name="S3300-52X-PoE+",
+    host="10.1.5.11",
+    community="public",
+    manufacturer="Netgear",
+    model="GSM7228PS",
+    sensors=[
+        # Fans: .6.1.4.1.{index} = speed as STRING (RPM) — 3 fans
+        SnmpSensor(
+            suffix="fan1_rpm", name="Fan 1", unit="RPM", icon="mdi:fan",
+            oid=f"{_S3300_BOX}.6.1.4.1.0", value_type="string_int",
+        ),
+        SnmpSensor(
+            suffix="fan2_rpm", name="Fan 2", unit="RPM", icon="mdi:fan",
+            oid=f"{_S3300_BOX}.6.1.4.1.1", value_type="string_int",
+        ),
+        SnmpSensor(
+            suffix="fan3_rpm", name="Fan 3", unit="RPM", icon="mdi:fan",
+            oid=f"{_S3300_BOX}.6.1.4.1.2", value_type="string_int",
+        ),
+        # Temperature: .15.1.3.{index} = temp in Celsius
+        SnmpSensor(
+            suffix="temp", name="Temperature", unit="°C",
+            device_class="temperature",
+            oid=f"{_S3300_BOX}.15.1.3.1",
+        ),
+        # PSU power: .8.1.5.1.{index} = watts
+        SnmpSensor(
+            suffix="psu_power", name="PSU Power", unit="W",
+            device_class="power",
+            oid=f"{_S3300_BOX}.8.1.5.1.0",
+        ),
+    ],
+    walk_sensors=[
+        # Per-port PoE power delivery: .2.1.{port} = milliwatts
+        WalkSensorDef(
+            base_oid=f"{_S3300_POE}.2.1",
+            suffix_template="port{index}_poe_mw",
+            name_template="Port {index} PoE Power",
+            unit="mW",
+            device_class="power",
+            min_index=1,
+            max_index=48,
+        ),
+    ],
+)
+
 # All switches to poll
-SWITCHES: list[SwitchConfig] = [M4300_24X, GSM7252PS_S1]
+SWITCHES: list[SwitchConfig] = [M4300_24X, GSM7252PS_S1, S3300]
 
 
 # ---------------------------------------------------------------------------
