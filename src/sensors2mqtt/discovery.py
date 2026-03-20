@@ -7,7 +7,7 @@ HA-compatible discovery and state messages.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import paho.mqtt.client as mqtt
 

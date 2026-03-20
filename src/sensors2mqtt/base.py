@@ -5,7 +5,6 @@ All collectors inherit from BasePublisher and implement poll().
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import signal
