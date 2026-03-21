@@ -11,7 +11,7 @@
 - [x] Step 7: Clean up old retained MQTT messages — d28e7d0
 - [x] Step 8: Capture fixture data + tests — 0098859
 - [x] Review fix: add state_class + origin to IPMI SDR collector — 32098c7
-- [ ] Code review checkpoint (Part 1 complete)
+- [x] Code review checkpoint (Part 1 complete) — 32098c7
 
 Live test results (--once mode):
   sw-netgear-m4300-24x: 4 hw sensors + 144 port sensors (24×6)
@@ -23,12 +23,24 @@ Live test results (--once mode):
 - [x] Step 1: Add write_community to SwitchConfig — 4613cc2
 - [x] Steps 2-7: Full control service (toggle, cycle, force override, discovery, availability) — 96e3239
 - [x] Step 8: Tests (40 tests) + systemd service file — d0a1312
-- [ ] Code review checkpoint (Part 2 complete)
+- [x] Code review checkpoint (Part 2 complete) — 8479d1c
 
-## Cross-cutting
+Control service live test (--once mode):
+  sw-netgear-gsm7252ps-s2: 144 control entities, 48 ports polled
+  sw-netgear-s3300-1: 144 control entities, 48 ports polled
+  (M4300 correctly excluded — no PoE, no write_community)
+
+## Cross-cutting — COMPLETE
 
 - [x] Add --once flag to SNMP collector — f2f161e
 - [x] Add --once flag to hwmon and ipmi_sdr collectors — e769f3a
-- [ ] Per-switch live verification (M4300, GSM7252PS-S2, S3300-1)
-- [ ] HA entity verification
-- [ ] MQTT retention verification
+- [x] Per-switch live verification (M4300, GSM7252PS-S2, S3300-1) — verified
+- [x] HA entity verification — switch/button/force discovery retained, correct payloads
+- [x] MQTT retention verification — state topics NOT retained, discovery IS retained
+
+## Test Summary
+
+- 136 total tests (96 snmp + 40 snmp_control)
+- ruff lint clean
+- All 3 switches live-tested in --once mode
+- Control service live-tested against both PoE switches
