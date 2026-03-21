@@ -2,14 +2,16 @@
 
 ## Part 1: Expand Sensor Collector
 
-- [ ] Step 1: Fix state topic retention (all collectors)
-- [ ] Step 2: Add origin dict + fix SensorDef.state_class default
-- [ ] Step 3: Add VLAN name lookup
-- [ ] Step 4: Add LLDP neighbor lookup (dedicated parser)
-- [ ] Step 5: Add port_count to SwitchModel + per-port state walks
+- [x] Step 1: Fix state topic retention (all collectors) — 5dad2d7
+- [x] Step 2: Add origin dict + fix SensorDef.state_class default — 056eedb
+- [x] Step 3: Add VLAN name lookup — 2a4f8c3
+- [x] Step 4: Add LLDP neighbor lookup (dedicated parser) — 3f1a1c3
+- [x] Step 5: Add port_count to SwitchModel + per-port state walks — 4ef8a10
+  - Live tested against all 3 switches — M4300 (24 ports), GSM7252PS (52), S3300 (52)
+  - Index alignment verified: ifOperStatus, ifHighSpeed, dot1qPvid all use same port indices
 - [ ] Step 6: Per-port state topics + multi-component discovery
 - [ ] Step 7: Clean up old retained MQTT messages
-- [ ] Step 8: Capture fixture data + tests
+- [ ] Step 8: Capture fixture data + tests for new walks
 - [ ] Code review checkpoint (Part 1 complete)
 
 ## Part 2: PoE Control Service
