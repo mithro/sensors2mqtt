@@ -26,6 +26,7 @@ def make_sensor(**kwargs):
         "name": "CPU Temperature",
         "unit": "°C",
         "device_class": "temperature",
+        "state_class": "measurement",
     }
     defaults.update(kwargs)
     return SensorDef(**defaults)
@@ -33,10 +34,14 @@ def make_sensor(**kwargs):
 
 class TestSensorDef:
     def test_defaults(self):
-        s = make_sensor()
-        assert s.state_class == "measurement"
+        s = SensorDef(suffix="x", name="x", unit="x")
+        assert s.state_class is None  # Default is None — only numeric sensors set it
         assert s.icon is None
         assert s.entity_category is None
+
+    def test_numeric_sensor(self):
+        s = make_sensor()
+        assert s.state_class == "measurement"
 
     def test_frozen(self):
         s = make_sensor()
@@ -67,6 +72,16 @@ class TestDiscoveryPayload:
         assert payload["availability_topic"] == "sensors2mqtt/test_device/status"
         assert payload["payload_available"] == "online"
         assert payload["payload_not_available"] == "offline"
+        assert payload["origin"]["name"] == "sensors2mqtt"
+        assert "url" in payload["origin"]
+
+    def test_no_state_class_when_none(self):
+        sensor = make_sensor(state_class=None)
+        payload = discovery_payload(
+            sensor, make_device(),
+            state_topic="t", avail_topic="a",
+        )
+        assert "state_class" not in payload
 
     def test_device_info(self):
         device = make_device()

@@ -13,6 +13,12 @@ import paho.mqtt.client as mqtt
 
 DISCOVERY_PREFIX = "homeassistant"
 
+ORIGIN = {
+    "name": "sensors2mqtt",
+    "sw": "0.1.0",
+    "url": "https://github.com/mithro/sensors2mqtt",
+}
+
 
 @dataclass(frozen=True)
 class SensorDef:
@@ -23,7 +29,9 @@ class SensorDef:
         name: Human-readable name shown in HA (e.g. "ASIC Temperature").
         unit: Unit of measurement (e.g. "°C", "RPM", "W").
         device_class: HA device class (e.g. "temperature", "power"). None if N/A.
-        state_class: HA state class. Defaults to "measurement".
+        state_class: HA state class. None for non-numeric sensors. "measurement" for
+            point-in-time readings. Only set on numeric sensors — HA logs errors if
+            state_class is set on string/enum sensors.
         icon: MDI icon override (e.g. "mdi:fan"). None uses HA default.
         entity_category: HA entity category (e.g. "diagnostic"). None for normal.
     """
@@ -32,7 +40,7 @@ class SensorDef:
     name: str
     unit: str
     device_class: str | None = None
-    state_class: str = "measurement"
+    state_class: str | None = None
     icon: str | None = None
     entity_category: str | None = None
 
@@ -69,12 +77,14 @@ def discovery_payload(
         "state_topic": state_topic,
         "value_template": f"{{{{ value_json.{sensor.suffix} }}}}",
         "unit_of_measurement": sensor.unit,
-        "state_class": sensor.state_class,
         "device": _device_dict(device),
         "availability_topic": avail_topic,
         "payload_available": "online",
         "payload_not_available": "offline",
+        "origin": ORIGIN,
     }
+    if sensor.state_class:
+        config["state_class"] = sensor.state_class
     if sensor.device_class:
         config["device_class"] = sensor.device_class
     if sensor.icon:

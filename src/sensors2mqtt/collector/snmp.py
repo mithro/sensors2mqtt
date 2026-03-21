@@ -477,13 +477,14 @@ class SnmpCollector:
         """Build SensorDef list for a switch, including dynamic walk sensors."""
         sensors = []
 
-        # Static snmpget sensors
+        # Static snmpget sensors (all numeric — fans, temp, PSU power)
         for s in switch.sensors:
             sensors.append(SensorDef(
                 suffix=s.suffix,
                 name=s.name,
                 unit=s.unit,
                 device_class=s.device_class,
+                state_class="measurement",
                 icon=s.icon,
             ))
 
@@ -509,6 +510,7 @@ class SnmpCollector:
                         name=friendly,
                         unit=walk_def.unit,
                         device_class=walk_def.device_class,
+                        state_class="measurement",
                         icon=walk_def.icon,
                     ))
 

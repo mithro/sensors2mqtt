@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 # Sensor mapping
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class HwmonSensor:
     """Hwmon sensor with JSON path for extraction.
@@ -40,47 +41,65 @@ class HwmonSensor:
 # sw-bb-25g sensor definitions (Mellanox SN2410)
 HWMON_SENSORS: list[HwmonSensor] = [
     HwmonSensor(
-        SensorDef("asic_temp", "ASIC Temperature", "°C", device_class="temperature"),
+        SensorDef(
+            "asic_temp",
+            "ASIC Temperature",
+            "°C",
+            device_class="temperature",
+            state_class="measurement",
+        ),
         ("mlxsw-pci-0300", "temp1", "temp1_input"),
     ),
     HwmonSensor(
-        SensorDef("cpu_temp", "CPU Temperature", "°C", device_class="temperature"),
+        SensorDef(
+            "cpu_temp",
+            "CPU Temperature",
+            "°C",
+            device_class="temperature",
+            state_class="measurement",
+        ),
         ("coretemp-isa-0000", "Package id 0", "temp1_input"),
     ),
     HwmonSensor(
-        SensorDef("board_temp", "Board Temperature", "°C", device_class="temperature"),
+        SensorDef(
+            "board_temp",
+            "Board Temperature",
+            "°C",
+            device_class="temperature",
+            state_class="measurement",
+        ),
         ("jc42-i2c-0-1b", "temp1", "temp1_input"),
     ),
     HwmonSensor(
-        SensorDef("fan1_rpm", "Fan 1 Front", "RPM", icon="mdi:fan"),
+        SensorDef("fan1_rpm", "Fan 1 Front", "RPM", state_class="measurement", icon="mdi:fan"),
         ("mlxsw-pci-0300", "fan1", "fan1_input"),
     ),
     HwmonSensor(
-        SensorDef("fan2_rpm", "Fan 1 Rear", "RPM", icon="mdi:fan"),
+        SensorDef("fan2_rpm", "Fan 1 Rear", "RPM", state_class="measurement", icon="mdi:fan"),
         ("mlxsw-pci-0300", "fan2", "fan2_input"),
     ),
     HwmonSensor(
-        SensorDef("fan3_rpm", "Fan 2 Front", "RPM", icon="mdi:fan"),
+        SensorDef("fan3_rpm", "Fan 2 Front", "RPM", state_class="measurement", icon="mdi:fan"),
         ("mlxsw-pci-0300", "fan3", "fan3_input"),
     ),
     HwmonSensor(
-        SensorDef("fan4_rpm", "Fan 2 Rear", "RPM", icon="mdi:fan"),
+        SensorDef("fan4_rpm", "Fan 2 Rear", "RPM", state_class="measurement", icon="mdi:fan"),
         ("mlxsw-pci-0300", "fan4", "fan4_input"),
     ),
     HwmonSensor(
-        SensorDef("fan5_rpm", "Fan 3 Front", "RPM", icon="mdi:fan"),
+        SensorDef("fan5_rpm", "Fan 3 Front", "RPM", state_class="measurement", icon="mdi:fan"),
         ("mlxsw-pci-0300", "fan5", "fan5_input"),
     ),
     HwmonSensor(
-        SensorDef("fan6_rpm", "Fan 3 Rear", "RPM", icon="mdi:fan"),
+        SensorDef("fan6_rpm", "Fan 3 Rear", "RPM", state_class="measurement", icon="mdi:fan"),
         ("mlxsw-pci-0300", "fan6", "fan6_input"),
     ),
     HwmonSensor(
-        SensorDef("fan7_rpm", "Fan 4 Front", "RPM", icon="mdi:fan"),
+        SensorDef("fan7_rpm", "Fan 4 Front", "RPM", state_class="measurement", icon="mdi:fan"),
         ("mlxsw-pci-0300", "fan7", "fan7_input"),
     ),
     HwmonSensor(
-        SensorDef("fan8_rpm", "Fan 4 Rear", "RPM", icon="mdi:fan"),
+        SensorDef("fan8_rpm", "Fan 4 Rear", "RPM", state_class="measurement", icon="mdi:fan"),
         ("mlxsw-pci-0300", "fan8", "fan8_input"),
     ),
 ]
@@ -89,6 +108,7 @@ HWMON_SENSORS: list[HwmonSensor] = [
 # ---------------------------------------------------------------------------
 # Collector
 # ---------------------------------------------------------------------------
+
 
 class HwmonCollector(BasePublisher):
     """Polls local hwmon via `sensors -j` and publishes to MQTT."""
@@ -121,7 +141,9 @@ class HwmonCollector(BasePublisher):
         try:
             result = subprocess.run(
                 ["sensors", "-j"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             if result.returncode != 0:
                 log.warning("sensors failed (rc=%d): %s", result.returncode, result.stderr.strip())
