@@ -100,8 +100,8 @@ def publish_discovery(
 
 
 def publish_state(client: mqtt.Client, state_topic: str, values: dict) -> None:
-    """Publish sensor state as JSON."""
-    client.publish(state_topic, json.dumps(values), retain=True)
+    """Publish sensor state as JSON. Not retained — fresh data each poll cycle."""
+    client.publish(state_topic, json.dumps(values), retain=False)
 
 
 def _device_dict(device: DeviceInfo) -> dict:

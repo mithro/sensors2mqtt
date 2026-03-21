@@ -454,7 +454,7 @@ def main():
                     for psu in psu_data.get("psus", []):
                         slot = psu["slot"]
                         psu_topic = f"sensors2mqtt/{NODE_ID}/psu{slot}/state"
-                        client.publish(psu_topic, json.dumps(psu), retain=True)
+                        client.publish(psu_topic, json.dumps(psu), retain=False)
 
                 psu_power = sum(
                     p.get("dc_12v_output_power_w", 0) or 0 for p in (psu_data or {}).get("psus", [])
