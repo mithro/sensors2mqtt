@@ -22,3 +22,6 @@ uv.lock
 
 # Temp
 tmp/
+
+# Git worktrees
+.worktrees/
