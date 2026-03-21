@@ -18,16 +18,11 @@ Live test results (--once mode):
   sw-netgear-gsm7252ps-s2: 48 hw sensors + 456 port sensors (52×~9)
   sw-netgear-s3300-1: 53 hw sensors + 456 port sensors (52×~9)
 
-## Part 2: PoE Control Service
+## Part 2: PoE Control Service — COMPLETE
 
-- [ ] Step 1: Add write_community to SwitchConfig
-- [ ] Step 2: Create snmp_control module skeleton
-- [ ] Step 3: Port state polling + control availability
-- [ ] Step 4: HA switch/button entity discovery
-- [ ] Step 5: Toggle command handler (threaded)
-- [ ] Step 6: Power cycle handler (poll-based)
-- [ ] Step 7: Force override handler (retained state)
-- [ ] Step 8: Systemd service + tests
+- [x] Step 1: Add write_community to SwitchConfig — 4613cc2
+- [x] Steps 2-7: Full control service (toggle, cycle, force override, discovery, availability) — 96e3239
+- [x] Step 8: Tests (40 tests) + systemd service file — d0a1312
 - [ ] Code review checkpoint (Part 2 complete)
 
 ## Cross-cutting
