@@ -1,0 +1,23 @@
+# sensors2mqtt SNMP collector configuration
+#
+# Each switch needs a model (defines which OIDs to poll) and connection details.
+# Known models: m4300, gsm7252ps, s3300
+#
+# The switch name (TOML key) should match the DNS hostname.
+# It becomes both the HA device name and the MQTT node_id (hyphens → underscores).
+# If host is omitted, it defaults to "{name}.welland.mithis.com".
+
+[switches.sw-netgear-m4300-24x]
+model = "m4300"
+host = "sw-netgear-m4300-24x.welland.mithis.com"
+community = "public"
+
+[switches.sw-netgear-gsm7252ps-s2]
+model = "gsm7252ps"
+host = "sw-netgear-gsm7252ps-s2.welland.mithis.com"
+community = "public"
+
+[switches.sw-netgear-s3300-1]
+model = "s3300"
+host = "sw-netgear-s3300-1.welland.mithis.com"
+community = "public"

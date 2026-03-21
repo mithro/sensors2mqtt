@@ -4,8 +4,12 @@ Runs on ten64 (the router). Polls multiple switches sequentially via
 subprocess snmpget/snmpwalk. Per-switch availability — one switch being
 down doesn't block others.
 
+Switch models (OID tables) are defined in code. Which switches to poll
+and their connection details are loaded from a TOML config file.
+
 Usage:
     python -m sensors2mqtt.collector.snmp
+    python -m sensors2mqtt.collector.snmp --config /etc/sensors2mqtt/snmp.toml
 """
 
 from __future__ import annotations
@@ -13,10 +17,20 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from sensors2mqtt.base import MqttConfig
 from sensors2mqtt.discovery import DeviceInfo, SensorDef, publish_discovery, publish_state
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib  # type: ignore[no-redef]
 
 log = logging.getLogger(__name__)
 
@@ -51,31 +65,6 @@ class SnmpSensor:
 
 
 @dataclass(frozen=True)
-class SwitchConfig:
-    """Configuration for a single managed switch.
-
-    Attributes:
-        node_id: Python-safe ID (e.g. "m4300_24x").
-        name: Display name (e.g. "M4300-24X").
-        host: IP or hostname.
-        community: SNMP community string.
-        manufacturer: For HA device registry.
-        model: For HA device registry.
-        sensors: List of sensors to poll.
-        walk_sensors: List of (base_oid, sensor_factory) for walk-based polling.
-    """
-
-    node_id: str
-    name: str
-    host: str
-    community: str
-    manufacturer: str
-    model: str
-    sensors: list[SnmpSensor] = field(default_factory=list)
-    walk_sensors: list[WalkSensorDef] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
 class WalkSensorDef:
     """Defines a set of sensors discovered by snmpwalk.
 
@@ -83,7 +72,7 @@ class WalkSensorDef:
 
     Attributes:
         base_oid: OID to walk.
-        suffix_template: Python format string for suffix, e.g. "port{index}_poe_watts".
+        suffix_template: Python format string for suffix, e.g. "port{index}_poe_mw".
         name_template: Format string for name, e.g. "Port {index} PoE Power".
         unit: Unit of measurement.
         device_class: HA device class.
@@ -104,132 +93,198 @@ class WalkSensorDef:
     max_index: int = 48
 
 
-# ---------------------------------------------------------------------------
-# sw-netgear-m4300-24x switch definition
-# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class SwitchModel:
+    """Hardware model definition — OID tables and sensor mappings.
 
-# boxServices MIB base: 1.3.6.1.4.1.4526.10.43.1
-_M4300_BOX = "1.3.6.1.4.1.4526.10.43.1"
+    This is the code-defined part: which OIDs to poll and how to interpret
+    them. Shared by all switches of the same model.
+    """
 
-M4300_24X = SwitchConfig(
-    node_id="sw_netgear_m4300_24x",
-    name="sw-netgear-m4300-24x",
-    host="sw-netgear-m4300-24x.welland.mithis.com",
-    community="public",
-    manufacturer="Netgear",
-    model="M4300-24X",
-    sensors=[
-        # Fans: .6.1.4.1.{index} = speed as STRING (RPM)
-        SnmpSensor(
-            suffix="fan1_rpm", name="Fan 1", unit="RPM", icon="mdi:fan",
-            oid=f"{_M4300_BOX}.6.1.4.1.0", value_type="string_int",
-        ),
-        SnmpSensor(
-            suffix="fan2_rpm", name="Fan 2", unit="RPM", icon="mdi:fan",
-            oid=f"{_M4300_BOX}.6.1.4.1.1", value_type="string_int",
-        ),
-        # Temperature: .15.1.3.{index} = temp in Celsius
-        SnmpSensor(
-            suffix="temp", name="Temperature", unit="°C",
-            device_class="temperature",
-            oid=f"{_M4300_BOX}.15.1.3.1",
-        ),
-        # PSU power: .8.1.5.1.{index} = watts
-        SnmpSensor(
-            suffix="psu_power", name="PSU Power", unit="W",
-            device_class="power",
-            oid=f"{_M4300_BOX}.8.1.5.1.0",
-        ),
-    ],
-)
+    manufacturer: str
+    model: str
+    sensors: list[SnmpSensor] = field(default_factory=list)
+    walk_sensors: list[WalkSensorDef] = field(default_factory=list)
 
 
-# ---------------------------------------------------------------------------
-# sw-netgear-gsm7252ps-s2 switch definition
-# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class SwitchConfig:
+    """Fully resolved switch configuration (model + deployment).
 
-# FASTPATH PoE MIB: 1.3.6.1.4.1.4526.10.15.1.1.1
-_GSM7252PS_POE = "1.3.6.1.4.1.4526.10.15.1.1.1"
+    Attributes:
+        node_id: Python-safe ID for MQTT topics (e.g. "sw_netgear_m4300_24x").
+        name: Display name matching DNS hostname (e.g. "sw-netgear-m4300-24x").
+        host: DNS hostname for SNMP polling.
+        community: SNMP community string.
+        manufacturer: For HA device registry (from model).
+        model: For HA device registry (from model).
+        sensors: List of sensors to poll (from model).
+        walk_sensors: List of walk sensor defs (from model).
+    """
 
-GSM7252PS_S2 = SwitchConfig(
-    node_id="sw_netgear_gsm7252ps_s2",
-    name="sw-netgear-gsm7252ps-s2",
-    host="sw-netgear-gsm7252ps-s2.welland.mithis.com",
-    community="public",
-    manufacturer="Netgear",
-    model="GSM7252PS",
-    walk_sensors=[
-        # Per-port actual PoE power delivery: .2.1.{port} = milliwatts
-        WalkSensorDef(
-            base_oid=f"{_GSM7252PS_POE}.2.1",
-            suffix_template="port{index}_poe_mw",
-            name_template="Port {index} PoE Power",
-            unit="mW",
-            device_class="power",
-            min_index=1,
-            max_index=48,
-        ),
-    ],
-)
+    node_id: str
+    name: str
+    host: str
+    community: str
+    manufacturer: str
+    model: str
+    sensors: list[SnmpSensor] = field(default_factory=list)
+    walk_sensors: list[WalkSensorDef] = field(default_factory=list)
+
 
 # ---------------------------------------------------------------------------
-# sw-netgear-s3300-1 switch definition
+# Model definitions — hardware-specific OID tables
 # ---------------------------------------------------------------------------
 
-# S3300 uses 4526.11 (Smart Managed Pro) instead of 4526.10 (Fully Managed)
-_S3300_BOX = "1.3.6.1.4.1.4526.11.43.1"
-_S3300_POE = "1.3.6.1.4.1.4526.11.15.1.1.1"
+# Netgear Fully Managed (4526.10): M4300 series
+_FM_BOX = "1.3.6.1.4.1.4526.10.43.1"
+_FM_POE = "1.3.6.1.4.1.4526.10.15.1.1.1"
 
-S3300_1 = SwitchConfig(
-    node_id="sw_netgear_s3300_1",
-    name="sw-netgear-s3300-1",
-    host="sw-netgear-s3300-1.welland.mithis.com",
-    community="public",
-    manufacturer="Netgear",
-    model="GSM7228PS",
-    sensors=[
-        # Fans: .6.1.4.1.{index} = speed as STRING (RPM) — 3 fans
-        SnmpSensor(
-            suffix="fan1_rpm", name="Fan 1", unit="RPM", icon="mdi:fan",
-            oid=f"{_S3300_BOX}.6.1.4.1.0", value_type="string_int",
-        ),
-        SnmpSensor(
-            suffix="fan2_rpm", name="Fan 2", unit="RPM", icon="mdi:fan",
-            oid=f"{_S3300_BOX}.6.1.4.1.1", value_type="string_int",
-        ),
-        SnmpSensor(
-            suffix="fan3_rpm", name="Fan 3", unit="RPM", icon="mdi:fan",
-            oid=f"{_S3300_BOX}.6.1.4.1.2", value_type="string_int",
-        ),
-        # Temperature: .15.1.3.{index} = temp in Celsius
-        SnmpSensor(
-            suffix="temp", name="Temperature", unit="°C",
-            device_class="temperature",
-            oid=f"{_S3300_BOX}.15.1.3.1",
-        ),
-        # PSU power: .8.1.5.1.{index} = watts
-        SnmpSensor(
-            suffix="psu_power", name="PSU Power", unit="W",
-            device_class="power",
-            oid=f"{_S3300_BOX}.8.1.5.1.0",
-        ),
-    ],
-    walk_sensors=[
-        # Per-port PoE power delivery: .2.1.{port} = milliwatts
-        WalkSensorDef(
-            base_oid=f"{_S3300_POE}.2.1",
-            suffix_template="port{index}_poe_mw",
-            name_template="Port {index} PoE Power",
-            unit="mW",
-            device_class="power",
-            min_index=1,
-            max_index=48,
-        ),
-    ],
-)
+# Netgear Smart Managed Pro (4526.11): S3300 series
+_SMP_BOX = "1.3.6.1.4.1.4526.11.43.1"
+_SMP_POE = "1.3.6.1.4.1.4526.11.15.1.1.1"
 
-# All switches to poll
-SWITCHES: list[SwitchConfig] = [M4300_24X, GSM7252PS_S2, S3300_1]
+
+def _box_sensors(base: str, num_fans: int) -> list[SnmpSensor]:
+    """Build boxServices sensor list for a given OID base and fan count."""
+    sensors = []
+    for i in range(num_fans):
+        sensors.append(SnmpSensor(
+            suffix=f"fan{i + 1}_rpm", name=f"Fan {i + 1}", unit="RPM", icon="mdi:fan",
+            oid=f"{base}.6.1.4.1.{i}", value_type="string_int",
+        ))
+    sensors.append(SnmpSensor(
+        suffix="temp", name="Temperature", unit="°C",
+        device_class="temperature",
+        oid=f"{base}.15.1.3.1",
+    ))
+    sensors.append(SnmpSensor(
+        suffix="psu_power", name="PSU Power", unit="W",
+        device_class="power",
+        oid=f"{base}.8.1.5.1.0",
+    ))
+    return sensors
+
+
+def _poe_walk(base: str) -> list[WalkSensorDef]:
+    """Build PoE per-port walk sensor for a given OID base."""
+    return [WalkSensorDef(
+        base_oid=f"{base}.2.1",
+        suffix_template="port{index}_poe_mw",
+        name_template="Port {index} PoE Power",
+        unit="mW",
+        device_class="power",
+        min_index=1,
+        max_index=48,
+    )]
+
+
+# Known switch models — keyed by the name used in config files
+MODELS: dict[str, SwitchModel] = {
+    "m4300": SwitchModel(
+        manufacturer="Netgear",
+        model="M4300-24X",
+        sensors=_box_sensors(_FM_BOX, num_fans=2),
+    ),
+    "gsm7252ps": SwitchModel(
+        manufacturer="Netgear",
+        model="GSM7252PS",
+        walk_sensors=_poe_walk(_FM_POE),
+    ),
+    "s3300": SwitchModel(
+        manufacturer="Netgear",
+        model="GSM7228PS",
+        sensors=_box_sensors(_SMP_BOX, num_fans=3),
+        walk_sensors=_poe_walk(_SMP_POE),
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
+# Config loading
+# ---------------------------------------------------------------------------
+
+DEFAULT_CONFIG_PATHS = [
+    Path("snmp.toml"),
+    Path("/etc/sensors2mqtt/snmp.toml"),
+]
+
+
+def load_config(path: Path | None = None) -> list[SwitchConfig]:
+    """Load switch deployment config from a TOML file.
+
+    Config format:
+        [switches.sw-netgear-m4300-24x]
+        model = "m4300"
+        host = "sw-netgear-m4300-24x.welland.mithis.com"
+        community = "public"
+
+    The switch name (TOML key) becomes both the display name and the
+    node_id (with hyphens replaced by underscores).
+    """
+    if path is None:
+        for candidate in DEFAULT_CONFIG_PATHS:
+            if candidate.exists():
+                path = candidate
+                break
+        if path is None:
+            log.warning("No config file found, using built-in defaults")
+            return _builtin_defaults()
+
+    log.info("Loading config from %s", path)
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+
+    switches = []
+    for name, sw_data in data.get("switches", {}).items():
+        model_name = sw_data.get("model")
+        if model_name not in MODELS:
+            log.error("Unknown model %r for switch %s (known: %s)",
+                      model_name, name, ", ".join(MODELS.keys()))
+            continue
+
+        model = MODELS[model_name]
+        node_id = name.replace("-", "_")
+        host = sw_data.get("host", f"{name}.welland.mithis.com")
+        community = sw_data.get("community", "public")
+
+        switches.append(SwitchConfig(
+            node_id=node_id,
+            name=name,
+            host=host,
+            community=community,
+            manufacturer=model.manufacturer,
+            model=model.model,
+            sensors=list(model.sensors),
+            walk_sensors=list(model.walk_sensors),
+        ))
+
+    log.info("Loaded %d switches from config", len(switches))
+    return switches
+
+
+def _builtin_defaults() -> list[SwitchConfig]:
+    """Fallback defaults when no config file is found."""
+    return [
+        _make_switch("sw-netgear-m4300-24x", "m4300"),
+        _make_switch("sw-netgear-gsm7252ps-s2", "gsm7252ps"),
+        _make_switch("sw-netgear-s3300-1", "s3300"),
+    ]
+
+
+def _make_switch(name: str, model_name: str) -> SwitchConfig:
+    """Create a SwitchConfig from a name and model, using default host/community."""
+    model = MODELS[model_name]
+    return SwitchConfig(
+        node_id=name.replace("-", "_"),
+        name=name,
+        host=f"{name}.welland.mithis.com",
+        community="public",
+        manufacturer=model.manufacturer,
+        model=model.model,
+        sensors=list(model.sensors),
+        walk_sensors=list(model.walk_sensors),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -300,10 +355,12 @@ class SnmpCollector:
     """
 
     def __init__(
-        self, config: MqttConfig | None = None, switches: list[SwitchConfig] | None = None,
+        self,
+        config: MqttConfig | None = None,
+        switches: list[SwitchConfig] | None = None,
     ):
         self.config = config or MqttConfig.from_env()
-        self.switches = switches or SWITCHES
+        self.switches = switches if switches is not None else load_config()
         self._timeout = 10
 
     def poll_switch(self, switch: SwitchConfig) -> dict | None:
@@ -415,6 +472,7 @@ class SnmpCollector:
 # ---------------------------------------------------------------------------
 
 def main():
+    import argparse
     import signal
     import threading
 
@@ -425,8 +483,13 @@ def main():
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
+    parser = argparse.ArgumentParser(description="SNMP switch sensor collector")
+    parser.add_argument("--config", type=Path, help="Path to TOML config file")
+    args = parser.parse_args()
+
     config = MqttConfig.from_env()
-    collector = SnmpCollector(config=config)
+    switches = load_config(args.config)
+    collector = SnmpCollector(config=config, switches=switches)
     stop_event = threading.Event()
     discovery_published: set[str] = set()
 
