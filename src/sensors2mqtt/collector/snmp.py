@@ -371,8 +371,10 @@ class SnmpCollector:
         self.config = config or MqttConfig.from_env()
         self.switches = switches if switches is not None else load_config()
         self._timeout = 10
-        # Cache of port descriptions fetched via SNMP ifAlias: {node_id: {port: device_name}}
+        # Cache of port descriptions fetched via SNMP ifAlias: {node_id: {port: description}}
         self._port_descriptions: dict[str, dict[int, str]] = {}
+        # Cache of VLAN names: {node_id: {vlan_id: name}}
+        self._vlan_names: dict[str, dict[int, str]] = {}
 
     def poll_switch(self, switch: SwitchConfig) -> dict | None:
         """Poll all sensors on a single switch. Returns {suffix: value} or None."""
@@ -472,6 +474,41 @@ class SnmpCollector:
         if descriptions:
             log.info("%s: fetched %d port descriptions", switch.name, len(descriptions))
         return descriptions
+
+    def fetch_vlan_names(self, switch: SwitchConfig) -> dict[int, str]:
+        """Fetch VLAN ID to name mapping from switch via SNMP dot1qVlanStaticName.
+
+        Returns {vlan_id: name}. Results are cached per switch.
+        """
+        if switch.node_id in self._vlan_names:
+            return self._vlan_names[switch.node_id]
+
+        # dot1qVlanStaticName: 1.3.6.1.2.1.17.7.1.4.3.1.1.{vlan_id}
+        VLAN_NAME_OID = "1.3.6.1.2.1.17.7.1.4.3.1.1"
+        names: dict[int, str] = {}
+
+        try:
+            result = subprocess.run(
+                ["snmpwalk", "-v2c", "-c", switch.community, switch.host, VLAN_NAME_OID],
+                capture_output=True, text=True, timeout=self._timeout * 3,
+            )
+            if result.returncode != 0:
+                log.warning(
+                    "%s: VLAN name walk failed: %s", switch.name, result.stderr.strip(),
+                )
+            else:
+                for index, val in parse_snmpwalk(result.stdout):
+                    if val:
+                        names[index] = val
+        except subprocess.TimeoutExpired:
+            log.warning("%s: VLAN name walk timed out", switch.name)
+        except Exception as e:
+            log.warning("%s: VLAN name walk error: %s", switch.name, e)
+
+        self._vlan_names[switch.node_id] = names
+        if names:
+            log.info("%s: fetched %d VLAN names", switch.name, len(names))
+        return names
 
     def get_sensors_for_switch(self, switch: SwitchConfig, values: dict) -> list[SensorDef]:
         """Build SensorDef list for a switch, including dynamic walk sensors."""

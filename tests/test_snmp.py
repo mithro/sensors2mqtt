@@ -207,6 +207,35 @@ class TestConfigLoading:
         assert len(switches) == 3
 
 
+class TestVlanNameLookup:
+    def test_fixture_gsm7252ps_vlan_names(self):
+        """VLAN name fixture parses correctly."""
+        text = (FIXTURES / "snmpwalk_gsm7252ps_vlan_names.txt").read_text()
+        from sensors2mqtt.collector.snmp import parse_snmpwalk
+        result = parse_snmpwalk(text)
+        names = {idx: val for idx, val in result}
+        assert names[1] == "default"
+        assert names[90] == "iot"
+        assert names[121] == "t-fpgas"
+        assert len(names) >= 10
+
+    @patch("sensors2mqtt.collector.snmp.subprocess.run")
+    def test_fetch_vlan_names(self, mock_run):
+        text = (FIXTURES / "snmpwalk_gsm7252ps_vlan_names.txt").read_text()
+        mock_run.return_value = MagicMock(returncode=0, stdout=text, stderr="")
+        from sensors2mqtt.base import MqttConfig
+        config = MqttConfig(host="test", port=1883, user="u", password="p")
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps")
+        collector = SnmpCollector(config=config, switches=[sw])
+        names = collector.fetch_vlan_names(sw)
+        assert names[90] == "iot"
+        assert names[1] == "default"
+        # Second call should use cache
+        names2 = collector.fetch_vlan_names(sw)
+        assert names2 is names
+        assert mock_run.call_count == 1
+
+
 class TestSnmpCollector:
     def make_collector(self, switches=None):
         from sensors2mqtt.base import MqttConfig
