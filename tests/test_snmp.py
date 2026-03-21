@@ -8,6 +8,7 @@ from sensors2mqtt.collector.snmp import (
     SnmpCollector,
     SwitchConfig,
     load_config,
+    parse_lldp_walk,
     parse_snmpget_value,
     parse_snmpwalk,
     snmpget_value,
@@ -234,6 +235,56 @@ class TestVlanNameLookup:
         names2 = collector.fetch_vlan_names(sw)
         assert names2 is names
         assert mock_run.call_count == 1
+
+
+class TestLldpParsing:
+    def test_parse_lldp_walk_sysname(self):
+        text = (FIXTURES / "snmpwalk_gsm7252ps_lldp_sysname.txt").read_text()
+        result = parse_lldp_walk(text, "9")
+        # Port 1 → rpi5-pmod (from OID ...9.150.1.21)
+        assert result[1] == "rpi5-pmod"
+        # Port 50 → sw-netgear-s3300-1 (from OID ...9.44.50.1)
+        assert result[50] == "sw-netgear-s3300-1"
+        # Port 49 → sw-netgear-m4300-24x
+        assert result[49] == "sw-netgear-m4300-24x"
+        assert len(result) >= 8
+
+    def test_parse_lldp_walk_portdesc(self):
+        text = (FIXTURES / "snmpwalk_gsm7252ps_lldp_portdesc.txt").read_text()
+        result = parse_lldp_walk(text, "8")
+        # Port 1 → eth0 (rpi5-pmod's interface)
+        assert result[1] == "eth0"
+        # Port 50 → 1/xg51 (S3300 uplink port)
+        assert result[50] == "1/xg51"
+
+    @patch("sensors2mqtt.collector.snmp.subprocess.run")
+    def test_fetch_lldp_neighbors(self, mock_run):
+        sysname_text = (FIXTURES / "snmpwalk_gsm7252ps_lldp_sysname.txt").read_text()
+        portdesc_text = (FIXTURES / "snmpwalk_gsm7252ps_lldp_portdesc.txt").read_text()
+
+        def side_effect(*args, **kwargs):
+            cmd = args[0]
+            oid = cmd[-1]
+            if oid.endswith(".9"):
+                return MagicMock(returncode=0, stdout=sysname_text, stderr="")
+            elif oid.endswith(".8"):
+                return MagicMock(returncode=0, stdout=portdesc_text, stderr="")
+            return MagicMock(returncode=1, stdout="", stderr="unknown OID")
+
+        mock_run.side_effect = side_effect
+        from sensors2mqtt.base import MqttConfig
+        config = MqttConfig(host="test", port=1883, user="u", password="p")
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps")
+        collector = SnmpCollector(config=config, switches=[sw])
+        neighbors = collector.fetch_lldp_neighbors(sw)
+        # Port 1 should be "rpi5-pmod / eth0"
+        assert "rpi5-pmod" in neighbors[1]
+        assert "eth0" in neighbors[1]
+        # Port 49 should be "sw-netgear-m4300-24x / trunk.gsm7252ps-s1"
+        assert "sw-netgear-m4300-24x" in neighbors[49]
+        # Cached on second call
+        neighbors2 = collector.fetch_lldp_neighbors(sw)
+        assert neighbors2 is neighbors
 
 
 class TestSnmpCollector:

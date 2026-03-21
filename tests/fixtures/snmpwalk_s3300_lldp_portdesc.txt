@@ -1,0 +1,4 @@
+iso.0.8802.1.1.2.1.4.1.1.8.72.42.2 = STRING: "eth-local"
+iso.0.8802.1.1.2.1.4.1.1.8.72.48.3 = STRING: "eth-uplink"
+iso.0.8802.1.1.2.1.4.1.1.8.97.49.4 = STRING: "gigabitethernet27"
+iso.0.8802.1.1.2.1.4.1.1.8.8196.51.10 = STRING: "gi28.sw-cisco-shed"

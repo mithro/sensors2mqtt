@@ -334,6 +334,35 @@ def parse_snmpwalk(output: str) -> list[tuple[int, str]]:
     return results
 
 
+def parse_lldp_walk(output: str, field_oid: str) -> dict[int, str]:
+    """Parse LLDP remote table walk output into {local_port: value}.
+
+    LLDP uses a three-part index: {timeMark}.{localPortNum}.{remIndex}.
+    We extract localPortNum (the middle component) as the port key.
+
+    Args:
+        output: Raw snmpwalk output.
+        field_oid: The field number in the OID (e.g. "9" for sysName, "8" for portDesc).
+    """
+    results: dict[int, str] = {}
+    for line in output.strip().splitlines():
+        # Skip Hex-STRING lines (MAC addresses, not useful as text)
+        if "Hex-STRING:" in line:
+            continue
+        # OID suffix: ...{field_oid}.{timeMark}.{localPortNum}.{remIndex}
+        m = re.match(
+            rf".*\.{field_oid}\.(\d+)\.(\d+)\.(\d+)\s*=\s*\S+:\s*(.*)",
+            line,
+        )
+        if not m:
+            continue
+        port = int(m.group(2))  # localPortNum is the middle component
+        val = m.group(4).strip().strip('"')
+        if val and port not in results:
+            results[port] = val
+    return results
+
+
 def snmpget_value(raw: str, value_type: str, scale: float) -> float | None:
     """Convert a raw SNMP value string to a numeric value."""
     if raw is None:
@@ -375,6 +404,8 @@ class SnmpCollector:
         self._port_descriptions: dict[str, dict[int, str]] = {}
         # Cache of VLAN names: {node_id: {vlan_id: name}}
         self._vlan_names: dict[str, dict[int, str]] = {}
+        # Cache of LLDP neighbors: {node_id: {port: "sysname / portdesc"}}
+        self._lldp_neighbors: dict[str, dict[int, str]] = {}
 
     def poll_switch(self, switch: SwitchConfig) -> dict | None:
         """Poll all sensors on a single switch. Returns {suffix: value} or None."""
@@ -509,6 +540,61 @@ class SnmpCollector:
         if names:
             log.info("%s: fetched %d VLAN names", switch.name, len(names))
         return names
+
+    def fetch_lldp_neighbors(self, switch: SwitchConfig) -> dict[int, str]:
+        """Fetch LLDP neighbor info from switch.
+
+        Returns {port: "sys_name / port_desc"} for ports with LLDP neighbors.
+        Results are cached per switch.
+
+        LLDP remote table base OID: 1.0.8802.1.1.2.1.4.1.1
+        Field .9 = lldpRemSysName, field .8 = lldpRemPortDesc.
+        Index: {timeMark}.{localPortNum}.{remIndex} (three-part).
+        """
+        if switch.node_id in self._lldp_neighbors:
+            return self._lldp_neighbors[switch.node_id]
+
+        LLDP_REM = "1.0.8802.1.1.2.1.4.1.1"
+        sys_names: dict[int, str] = {}
+        port_descs: dict[int, str] = {}
+
+        for field_oid, target in [("9", sys_names), ("8", port_descs)]:
+            try:
+                result = subprocess.run(
+                    [
+                        "snmpwalk", "-v2c", "-c", switch.community,
+                        switch.host, f"{LLDP_REM}.{field_oid}",
+                    ],
+                    capture_output=True, text=True, timeout=self._timeout * 3,
+                )
+                if result.returncode != 0:
+                    log.warning(
+                        "%s: LLDP .%s walk failed: %s",
+                        switch.name, field_oid, result.stderr.strip(),
+                    )
+                else:
+                    target.update(parse_lldp_walk(result.stdout, field_oid))
+            except subprocess.TimeoutExpired:
+                log.warning("%s: LLDP .%s walk timed out", switch.name, field_oid)
+            except Exception as e:
+                log.warning("%s: LLDP .%s walk error: %s", switch.name, field_oid, e)
+
+        # Combine: "sys_name / port_desc" for each port
+        neighbors: dict[int, str] = {}
+        all_ports = set(sys_names.keys()) | set(port_descs.keys())
+        for port in all_ports:
+            parts = []
+            if port in sys_names:
+                parts.append(sys_names[port])
+            if port in port_descs:
+                parts.append(port_descs[port])
+            if parts:
+                neighbors[port] = " / ".join(parts)
+
+        self._lldp_neighbors[switch.node_id] = neighbors
+        if neighbors:
+            log.info("%s: fetched %d LLDP neighbors", switch.name, len(neighbors))
+        return neighbors
 
     def get_sensors_for_switch(self, switch: SwitchConfig, values: dict) -> list[SensorDef]:
         """Build SensorDef list for a switch, including dynamic walk sensors."""
