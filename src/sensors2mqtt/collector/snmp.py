@@ -683,17 +683,17 @@ class SnmpCollector:
             except Exception as e:
                 log.warning("%s: LLDP .%s walk error: %s", switch.name, field_oid, e)
 
-        # Combine: "sys_name / port_desc" for each port
+        # Combine as "port_desc.sys_name" (e.g. "eth0.rpi5-pmod") to match ifAlias convention
         neighbors: dict[int, str] = {}
         all_ports = set(sys_names.keys()) | set(port_descs.keys())
         for port in all_ports:
             parts = []
-            if port in sys_names:
-                parts.append(sys_names[port])
             if port in port_descs:
                 parts.append(port_descs[port])
+            if port in sys_names:
+                parts.append(sys_names[port])
             if parts:
-                neighbors[port] = " / ".join(parts)
+                neighbors[port] = ".".join(parts)
 
         self._lldp_neighbors[switch.node_id] = neighbors
         if neighbors:
