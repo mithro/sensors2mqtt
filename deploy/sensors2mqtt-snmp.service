@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/opt/sensors2mqtt/bin/python -m sensors2mqtt.collector.snmp
+ExecStart=/opt/sensors2mqtt/bin/python -m sensors2mqtt.collector.snmp --config /etc/sensors2mqtt/snmp.toml
 Restart=always
 RestartSec=10
 Environment=MQTT_HOST=ha.welland.mithis.com
