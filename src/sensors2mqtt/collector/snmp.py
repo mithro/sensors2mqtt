@@ -150,6 +150,7 @@ class SwitchConfig:
     model: str
     port_count: int = 0
     poe_port_count: int = 0
+    write_community: str | None = None
     sensors: list[SnmpSensor] = field(default_factory=list)
     walk_sensors: list[WalkSensorDef] = field(default_factory=list)
 
@@ -276,6 +277,7 @@ def load_config(path: Path | None = None) -> list[SwitchConfig]:
         node_id = name.replace("-", "_")
         host = sw_data.get("host", f"{name}.welland.mithis.com")
         community = sw_data.get("community", "public")
+        write_community = sw_data.get("write_community")
 
         switches.append(SwitchConfig(
             node_id=node_id,
@@ -286,6 +288,7 @@ def load_config(path: Path | None = None) -> list[SwitchConfig]:
             model=model.model,
             port_count=model.port_count,
             poe_port_count=model.poe_port_count,
+            write_community=write_community,
             sensors=list(model.sensors),
             walk_sensors=list(model.walk_sensors),
         ))

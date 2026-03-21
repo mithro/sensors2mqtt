@@ -18,8 +18,10 @@ community = "public"
 model = "gsm7252ps"
 host = "sw-netgear-gsm7252ps-s2.welland.mithis.com"
 community = "public"
+write_community = "private"
 
 [switches.sw-netgear-s3300-1]
 model = "s3300"
 host = "sw-netgear-s3300-1.welland.mithis.com"
 community = "public"
+write_community = "private"

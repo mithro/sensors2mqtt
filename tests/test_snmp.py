@@ -203,6 +203,14 @@ class TestConfigLoading:
         with pytest.raises(FileNotFoundError):
             load_config(Path("/nonexistent/path.toml"))
 
+    def test_write_community_loaded(self):
+        """PoE switches should have write_community from config."""
+        switches = load_config(CONFIG_FILE)
+        by_name = {s.name: s for s in switches}
+        assert by_name["sw-netgear-gsm7252ps-s2"].write_community == "private"
+        assert by_name["sw-netgear-s3300-1"].write_community == "private"
+        assert by_name["sw-netgear-m4300-24x"].write_community is None
+
     def test_builtin_defaults(self):
         """When no config file found via default paths, builtins are used."""
         from sensors2mqtt.collector.snmp import _builtin_defaults
