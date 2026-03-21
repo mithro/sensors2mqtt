@@ -80,6 +80,7 @@ class WalkSensorDef:
         scale: Multiply raw value by this factor.
         min_index: Minimum index to include.
         max_index: Maximum index to include.
+        index_width: Zero-pad index to this width (e.g. 2 → "01", "48").
     """
 
     base_oid: str
@@ -91,6 +92,13 @@ class WalkSensorDef:
     scale: float = 1.0
     min_index: int = 1
     max_index: int = 48
+    index_width: int = 0
+
+    def format_index(self, index: int) -> str:
+        """Format an index value with zero-padding if configured."""
+        if self.index_width > 0:
+            return str(index).zfill(self.index_width)
+        return str(index)
 
 
 @dataclass(frozen=True)
@@ -176,6 +184,7 @@ def _poe_walk(base: str) -> list[WalkSensorDef]:
         device_class="power",
         min_index=1,
         max_index=48,
+        index_width=2,
     )]
 
 
@@ -409,7 +418,8 @@ class SnmpCollector:
                     if not m:
                         continue
                     val = float(m.group(1)) * walk_def.scale
-                    suffix = walk_def.suffix_template.format(index=index)
+                    formatted = walk_def.format_index(index)
+                    suffix = walk_def.suffix_template.format(index=formatted)
                     values[suffix] = val
             except subprocess.TimeoutExpired:
                 log.warning("%s: snmpwalk %s timed out", switch.name, walk_def.base_oid)
@@ -442,9 +452,10 @@ class SnmpCollector:
                 )
                 if m:
                     index = int(m.group(1))
+                    formatted = walk_def.format_index(index)
                     sensors.append(SensorDef(
                         suffix=key,
-                        name=walk_def.name_template.format(index=index),
+                        name=walk_def.name_template.format(index=formatted),
                         unit=walk_def.unit,
                         device_class=walk_def.device_class,
                         icon=walk_def.icon,

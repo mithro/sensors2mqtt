@@ -274,9 +274,9 @@ class TestSnmpCollector:
         collector = self.make_collector(switches=[sw])
         values = collector.poll_switch(sw)
         assert values is not None
-        assert "port1_poe_mw" in values
-        assert values["port1_poe_mw"] == 3300.0
-        assert values["port5_poe_mw"] == 5600.0
+        assert "port01_poe_mw" in values
+        assert values["port01_poe_mw"] == 3300.0
+        assert values["port05_poe_mw"] == 5600.0
 
     def test_get_sensors_for_switch_static(self):
         sw = _make_switch("test-m4300", "m4300")
@@ -288,12 +288,12 @@ class TestSnmpCollector:
     def test_get_sensors_for_switch_dynamic(self):
         sw = _make_switch("test-gsm7252ps", "gsm7252ps")
         collector = self.make_collector(switches=[sw])
-        values = {"port1_poe_mw": 3300, "port5_poe_mw": 5600}
+        values = {"port01_poe_mw": 3300, "port05_poe_mw": 5600}
         sensors = collector.get_sensors_for_switch(sw, values)
         assert len(sensors) == 2
         names = {s.name for s in sensors}
-        assert "Port 1 PoE Power" in names
-        assert "Port 5 PoE Power" in names
+        assert "Port 01 PoE Power" in names
+        assert "Port 05 PoE Power" in names
 
     def test_topics(self):
         sw = _make_switch("test-m4300", "m4300")
