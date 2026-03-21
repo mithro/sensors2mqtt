@@ -21,8 +21,18 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import paho.mqtt.client as mqtt
+
 from sensors2mqtt.base import MqttConfig
-from sensors2mqtt.discovery import DeviceInfo, SensorDef, publish_discovery, publish_state
+from sensors2mqtt.discovery import (
+    DISCOVERY_PREFIX,
+    ORIGIN,
+    DeviceInfo,
+    SensorDef,
+    _device_dict,
+    publish_discovery,
+    publish_state,
+)
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -749,8 +759,84 @@ class SnmpCollector:
 # Main entry point
 # ---------------------------------------------------------------------------
 
+def _publish_port_discovery(
+    client: mqtt.Client,
+    switch: SwitchConfig,
+    device: DeviceInfo,
+    avail_topic: str,
+) -> int:
+    """Publish per-port sensor discovery for all ports on a switch."""
+    import json as _json
+
+    count = 0
+    for port in range(1, switch.port_count + 1):
+        nn = str(port).zfill(2)
+        port_state_topic = f"sensors2mqtt/{switch.node_id}/port/{nn}/state"
+        port_prefix = f"port{nn}"
+
+        # Sensors for ALL ports
+        port_sensors = [
+            ("link", "sensor", f"Port {nn} Link", None, None, None, "mdi:ethernet"),
+            ("speed_mbps", "sensor", f"Port {nn} Speed", "data_rate", "Mbit/s",
+             "measurement", None),
+            ("vlan_pvid", "sensor", f"Port {nn} VLAN", None, None, "measurement", None),
+            ("vlan_name", "sensor", f"Port {nn} VLAN Name", None, None, None, None),
+            ("description", "sensor", f"Port {nn} Description", None, None, None, None),
+            ("lldp_neighbor", "sensor", f"Port {nn} LLDP", None, None, None, None),
+        ]
+
+        # PoE sensors (only for PoE-capable ports)
+        if port <= switch.poe_port_count:
+            port_sensors.extend([
+                ("poe_mw", "sensor", f"Port {nn} PoE Power", "power", "mW",
+                 "measurement", None),
+                ("poe_admin", "sensor", f"Port {nn} PoE Admin", None, None, None, None),
+                ("poe_status", "sensor", f"Port {nn} PoE Status", None, None, None, None),
+            ])
+
+        for value_key, platform, name, dev_class, unit, state_class, icon in port_sensors:
+            suffix = f"{port_prefix}_{value_key}"
+            unique_id = f"{switch.node_id}_{suffix}"
+            config_topic = (
+                f"{DISCOVERY_PREFIX}/sensor/{switch.node_id}/{suffix}/config"
+            )
+
+            # Determine entity_category: link and PoE power are primary, rest diagnostic
+            entity_category = "diagnostic"
+            if value_key == "link":
+                entity_category = None  # primary
+
+            config = {
+                "name": name,
+                "unique_id": unique_id,
+                "state_topic": port_state_topic,
+                "value_template": f"{{{{ value_json.{value_key} }}}}",
+                "device": _device_dict(device),
+                "availability_topic": avail_topic,
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "origin": ORIGIN,
+            }
+            if unit:
+                config["unit_of_measurement"] = unit
+            if state_class:
+                config["state_class"] = state_class
+            if dev_class:
+                config["device_class"] = dev_class
+            if icon:
+                config["icon"] = icon
+            if entity_category:
+                config["entity_category"] = entity_category
+
+            client.publish(config_topic, _json.dumps(config), retain=True)
+            count += 1
+
+    return count
+
+
 def main():
     import argparse
+    import json as _json
     import signal
     import threading
 
@@ -763,6 +849,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="SNMP switch sensor collector")
     parser.add_argument("--config", type=Path, help="Path to TOML config file")
+    parser.add_argument("--once", action="store_true", help="Poll once and exit")
     args = parser.parse_args()
 
     config = MqttConfig.from_env()
@@ -775,8 +862,9 @@ def main():
         log.info("Shutting down (signal %d)", signum)
         stop_event.set()
 
-    signal.signal(signal.SIGTERM, shutdown)
-    signal.signal(signal.SIGINT, shutdown)
+    if not args.once:
+        signal.signal(signal.SIGTERM, shutdown)
+        signal.signal(signal.SIGINT, shutdown)
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="sensors2mqtt-snmp")
     client.username_pw_set(config.user, config.password)
@@ -792,26 +880,71 @@ def main():
                     break
 
                 log.info("Polling %s (%s)", switch.name, switch.host)
-                values = collector.poll_switch(switch)
                 avail = collector.avail_topic(switch)
-                state = collector.state_topic(switch)
 
-                if values is None:
+                # Poll hardware sensors (fans, temp, PSU)
+                hw_values = collector.poll_switch(switch)
+
+                # Poll per-port status
+                port_status = collector.poll_port_status(switch)
+
+                if hw_values is None and not port_status:
                     client.publish(avail, "offline", retain=True)
                     log.warning("%s: no data", switch.name)
                     continue
 
+                # Publish discovery (once per startup)
                 if switch.node_id not in discovery_published:
-                    sensors = collector.get_sensors_for_switch(switch, values)
                     device = collector.get_device_info(switch)
-                    count = publish_discovery(client, sensors, device, state, avail)
+
+                    # Hardware sensor discovery (fans, temp, PSU)
+                    if hw_values:
+                        hw_sensors = collector.get_sensors_for_switch(switch, hw_values)
+                        hw_state = collector.state_topic(switch)
+                        hw_count = publish_discovery(
+                            client, hw_sensors, device, hw_state, avail,
+                        )
+                        log.info(
+                            "%s: published discovery for %d hardware sensors",
+                            switch.name, hw_count,
+                        )
+
+                    # Per-port discovery
+                    if switch.port_count > 0:
+                        port_count = _publish_port_discovery(
+                            client, switch, device, avail,
+                        )
+                        log.info(
+                            "%s: published discovery for %d port sensors",
+                            switch.name, port_count,
+                        )
+
                     discovery_published.add(switch.node_id)
-                    log.info("%s: published discovery for %d sensors", switch.name, count)
 
-                publish_state(client, state, values)
+                # Publish hardware sensor state (single blob, not retained)
+                if hw_values:
+                    publish_state(client, collector.state_topic(switch), hw_values)
+
+                # Publish per-port state (per-port topics, not retained)
+                for port_num, port_data in sorted(port_status.items()):
+                    nn = str(port_num).zfill(2)
+                    port_topic = f"sensors2mqtt/{switch.node_id}/port/{nn}/state"
+                    # Merge PoE power from hw_values if present
+                    poe_key = f"port{nn}_poe_mw"
+                    if hw_values and poe_key in hw_values:
+                        port_data["poe_mw"] = hw_values[poe_key]
+                    client.publish(port_topic, _json.dumps(port_data), retain=False)
+
                 client.publish(avail, "online", retain=True)
-                log.info("%s: published %d values", switch.name, len(values))
+                log.info(
+                    "%s: published %d hw values + %d port states",
+                    switch.name,
+                    len(hw_values) if hw_values else 0,
+                    len(port_status),
+                )
 
+            if args.once:
+                break
             stop_event.wait(timeout=config.poll_interval)
 
     finally:
