@@ -24,6 +24,7 @@ Live test results (--once mode):
 - [x] Steps 2-7: Full control service (toggle, cycle, force override, discovery, availability) — 96e3239
 - [x] Step 8: Tests (40 tests) + systemd service file — d0a1312
 - [x] Code review checkpoint (Part 2 complete) — 8479d1c
+- [x] Review fixes: thread safety, shutdown state, cycle flow — c347ae6
 
 Control service live test (--once mode):
   sw-netgear-gsm7252ps-s2: 144 control entities, 48 ports polled
