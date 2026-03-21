@@ -28,7 +28,7 @@ Live test results (--once mode):
 ## Cross-cutting
 
 - [x] Add --once flag to SNMP collector — f2f161e
-- [ ] Add --once flag to hwmon and ipmi_sdr collectors
+- [x] Add --once flag to hwmon and ipmi_sdr collectors — e769f3a
 - [ ] Per-switch live verification (M4300, GSM7252PS-S2, S3300-1)
 - [ ] HA entity verification
 - [ ] MQTT retention verification
