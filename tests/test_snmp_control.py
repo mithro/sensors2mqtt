@@ -404,8 +404,8 @@ class TestDiscovery:
 
         calls = ctrl._client.publish.call_args_list
         for c in calls:
-            # retain is the third positional arg or keyword
-            retain = c[0][2] if len(c[0]) > 2 else c[1].get("retain", False)
+            # paho publish(topic, payload, qos, retain) — retain is keyword arg
+            retain = c[1].get("retain", False)
             assert retain is True, f"Discovery not retained: {c[0][0]}"
 
     def test_toggle_dual_availability(self):

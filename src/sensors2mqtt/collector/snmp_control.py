@@ -21,7 +21,7 @@ import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
@@ -55,6 +55,7 @@ class PortControlState:
     link: int = 0            # 1=up, 2=down
     force_override: bool = False
     busy: bool = False       # True while a command is in progress
+    lock: threading.Lock = field(default_factory=threading.Lock)
 
     @property
     def is_available(self) -> bool:
@@ -230,11 +231,14 @@ class PoeController:
         if not state:
             log.warning("%s: toggle port %d — invalid port", switch.name, port)
             return
-        if state.busy:
-            log.warning("%s: port %d busy, ignoring toggle", switch.name, port)
-            return
 
-        state.busy = True
+        # Atomic check-and-set of busy flag to prevent concurrent commands
+        with state.lock:
+            if state.busy:
+                log.warning("%s: port %d busy, ignoring toggle", switch.name, port)
+                return
+            state.busy = True
+
         try:
             # ON → enable (1), OFF → disable (2)
             if payload == "ON":
@@ -273,11 +277,14 @@ class PoeController:
         if not state:
             log.warning("%s: cycle port %d — invalid port", switch.name, port)
             return
-        if state.busy:
-            log.warning("%s: port %d busy, ignoring cycle", switch.name, port)
-            return
 
-        state.busy = True
+        # Atomic check-and-set of busy flag
+        with state.lock:
+            if state.busy:
+                log.warning("%s: port %d busy, ignoring cycle", switch.name, port)
+                return
+            state.busy = True
+
         try:
             log.info("%s: port %d power cycle starting", switch.name, port)
 
@@ -295,26 +302,34 @@ class PoeController:
                 return
 
             # 3. Poll until off (30s timeout)
+            off_confirmed = False
             deadline = time.monotonic() + 30
             while time.monotonic() < deadline:
                 self.poll_port_state(switch, port)
                 if state.poe_detect == 1 and state.link == 2:  # unused + down
+                    off_confirmed = True
                     break
                 if self._stop_event.wait(timeout=2):
-                    return  # shutting down
-            else:
+                    # Shutting down — publish actual state before exit
+                    self.poll_port_state(switch, port)
+                    self.publish_poe_state(switch, port)
+                    self.publish_availability(switch)
+                    return
+
+            if not off_confirmed:
                 log.warning("%s: port %d cycle — off timeout (detect=%s link=%s)",
                             switch.name, port,
                             POE_DETECT_MAP.get(state.poe_detect, "?"),
                             OPER_MAP.get(state.link, "?"))
 
-            log.info("%s: port %d confirmed off, re-enabling", switch.name, port)
+            log.info("%s: port %d PoE disabled, re-enabling", switch.name, port)
 
             # 4. Enable PoE
             if not self._snmpset_int(switch, POE_ADMIN_OID, port, 1):
                 log.error("%s: port %d cycle failed — couldn't re-enable", switch.name, port)
                 self.poll_port_state(switch, port)
                 self.publish_poe_state(switch, port)
+                self.publish_availability(switch)
                 return
 
             # 5. Poll until delivering (60s timeout)
@@ -324,6 +339,10 @@ class PoeController:
                 if state.poe_detect == 3:  # delivering
                     break
                 if self._stop_event.wait(timeout=2):
+                    # Shutting down — publish actual state before exit
+                    self.poll_port_state(switch, port)
+                    self.publish_poe_state(switch, port)
+                    self.publish_availability(switch)
                     return
             else:
                 log.warning("%s: port %d cycle — delivering timeout (detect=%s)",
