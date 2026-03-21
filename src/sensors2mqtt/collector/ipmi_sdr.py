@@ -373,10 +373,21 @@ def publish_psu_discovery(
 
 
 def main():
+    import argparse
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+
+    parser = argparse.ArgumentParser(description="IPMI SDR + BMC PSU sensor collector")
+    parser.add_argument("--once", action="store_true", help="Poll once and exit")
+    parser.add_argument("--log-level", default="INFO",
+                        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                        help="Logging level")
+    args = parser.parse_args()
+
+    logging.getLogger().setLevel(getattr(logging, args.log_level))
 
     config = MqttConfig.from_env()
     bmc_host = os.environ.get("BMC_HOST", "10.1.5.150")
@@ -393,8 +404,9 @@ def main():
         log.info("Shutting down (signal %d)", signum)
         stop_event.set()
 
-    signal.signal(signal.SIGTERM, shutdown)
-    signal.signal(signal.SIGINT, shutdown)
+    if not args.once:
+        signal.signal(signal.SIGTERM, shutdown)
+        signal.signal(signal.SIGINT, shutdown)
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="sensors2mqtt-ipmi-sdr")
     client.username_pw_set(config.user, config.password)
@@ -469,6 +481,8 @@ def main():
                     psu_power,
                 )
 
+            if args.once:
+                break
             stop_event.wait(timeout=config.poll_interval)
 
     finally:

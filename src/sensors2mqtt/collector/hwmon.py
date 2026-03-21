@@ -176,12 +176,52 @@ class HwmonCollector(BasePublisher):
 
 
 def main():
+    import argparse
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+
+    parser = argparse.ArgumentParser(description="Hwmon sensor collector")
+    parser.add_argument("--once", action="store_true", help="Poll once and exit")
+    parser.add_argument("--log-level", default="INFO",
+                        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                        help="Logging level")
+    args = parser.parse_args()
+
+    logging.getLogger().setLevel(getattr(logging, args.log_level))
+
     collector = HwmonCollector()
-    collector.run()
+
+    if args.once:
+        import paho.mqtt.client as mqtt
+
+        from sensors2mqtt.base import MqttConfig
+        from sensors2mqtt.discovery import publish_discovery, publish_state
+
+        config = MqttConfig.from_env()
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=collector.client_id)
+        client.username_pw_set(config.user, config.password)
+        client.connect(config.host, config.port, keepalive=120)
+        client.loop_start()
+
+        values = collector.poll()
+        if values:
+            publish_discovery(
+                client, collector.sensors, collector.device,
+                collector.state_topic, collector.avail_topic,
+            )
+            publish_state(client, collector.state_topic, values)
+            client.publish(collector.avail_topic, "online", retain=True)
+            collector._log_summary(values)
+        else:
+            log.warning("No sensor data")
+
+        client.disconnect()
+        client.loop_stop()
+    else:
+        collector.run()
 
 
 if __name__ == "__main__":
