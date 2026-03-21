@@ -25,7 +25,7 @@ import requests
 import urllib3
 
 from sensors2mqtt.base import MqttConfig
-from sensors2mqtt.discovery import DeviceInfo, SensorDef, publish_discovery, publish_state
+from sensors2mqtt.discovery import ORIGIN, DeviceInfo, SensorDef, publish_discovery, publish_state
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -298,6 +298,7 @@ def get_sdr_sensors() -> list[SensorDef]:
                 name=name,
                 unit=unit,
                 device_class=dev_class,
+                state_class="measurement",
                 icon=icon,
             )
         )
@@ -330,6 +331,7 @@ def publish_psu_discovery(
                 "availability_topic": avail_topic,
                 "payload_available": "online",
                 "payload_not_available": "offline",
+                "origin": ORIGIN,
             }
             if dev_class:
                 config["device_class"] = dev_class
@@ -355,6 +357,7 @@ def publish_psu_discovery(
                 "availability_topic": avail_topic,
                 "payload_available": "online",
                 "payload_not_available": "offline",
+                "origin": ORIGIN,
             }
             if extra_cat:
                 config["entity_category"] = extra_cat
