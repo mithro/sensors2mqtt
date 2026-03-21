@@ -111,6 +111,8 @@ class SwitchModel:
 
     manufacturer: str
     model: str
+    port_count: int = 0
+    poe_port_count: int = 0
     sensors: list[SnmpSensor] = field(default_factory=list)
     walk_sensors: list[WalkSensorDef] = field(default_factory=list)
 
@@ -136,6 +138,8 @@ class SwitchConfig:
     community: str
     manufacturer: str
     model: str
+    port_count: int = 0
+    poe_port_count: int = 0
     sensors: list[SnmpSensor] = field(default_factory=list)
     walk_sensors: list[WalkSensorDef] = field(default_factory=list)
 
@@ -193,16 +197,22 @@ MODELS: dict[str, SwitchModel] = {
     "m4300": SwitchModel(
         manufacturer="Netgear",
         model="M4300-24X",
+        port_count=24,
+        poe_port_count=0,
         sensors=_box_sensors(_FM_BOX, num_fans=2),
     ),
     "gsm7252ps": SwitchModel(
         manufacturer="Netgear",
         model="GSM7252PS",
+        port_count=52,
+        poe_port_count=48,
         walk_sensors=_poe_walk(_FM_POE),
     ),
     "s3300": SwitchModel(
         manufacturer="Netgear",
         model="GSM7228PS",
+        port_count=52,
+        poe_port_count=48,
         sensors=_box_sensors(_SMP_BOX, num_fans=3),
         walk_sensors=_poe_walk(_SMP_POE),
     ),
@@ -264,6 +274,8 @@ def load_config(path: Path | None = None) -> list[SwitchConfig]:
             community=community,
             manufacturer=model.manufacturer,
             model=model.model,
+            port_count=model.port_count,
+            poe_port_count=model.poe_port_count,
             sensors=list(model.sensors),
             walk_sensors=list(model.walk_sensors),
         ))
@@ -291,6 +303,8 @@ def _make_switch(name: str, model_name: str) -> SwitchConfig:
         community="public",
         manufacturer=model.manufacturer,
         model=model.model,
+        port_count=model.port_count,
+        poe_port_count=model.poe_port_count,
         sensors=list(model.sensors),
         walk_sensors=list(model.walk_sensors),
     )
@@ -462,6 +476,83 @@ class SnmpCollector:
                 log.warning("%s: snmpwalk %s error: %s", switch.name, walk_def.base_oid, e)
 
         return values if values else None
+
+    def _walk_int_table(self, switch: SwitchConfig, oid: str) -> dict[int, int]:
+        """Walk an SNMP integer table, returning {index: value} for physical ports."""
+        try:
+            result = subprocess.run(
+                ["snmpwalk", "-v2c", "-c", switch.community, switch.host, oid],
+                capture_output=True, text=True, timeout=self._timeout * 3,
+            )
+            if result.returncode != 0:
+                log.warning("%s: walk %s failed: %s", switch.name, oid, result.stderr.strip())
+                return {}
+            out = {}
+            for index, val in parse_snmpwalk(result.stdout):
+                if 1 <= index <= switch.port_count:
+                    try:
+                        out[index] = int(val)
+                    except ValueError:
+                        pass
+            return out
+        except subprocess.TimeoutExpired:
+            log.warning("%s: walk %s timed out", switch.name, oid)
+            return {}
+
+    def poll_port_status(self, switch: SwitchConfig) -> dict[int, dict]:
+        """Poll per-port status from a switch.
+
+        Returns {port: {field: value}} for ports 1..port_count.
+        Fields: link (str), speed_mbps (int), vlan_pvid (int), vlan_name (str).
+        PoE switches also get: poe_admin (str), poe_status (str).
+        """
+        if switch.port_count == 0:
+            return {}
+
+        # Standard OIDs (all switches)
+        IF_OPER_STATUS = "1.3.6.1.2.1.2.2.1.8"
+        IF_HIGH_SPEED = "1.3.6.1.2.1.31.1.1.1.15"
+        DOT1Q_PVID = "1.3.6.1.2.1.17.7.1.4.5.1.1"
+
+        oper = self._walk_int_table(switch, IF_OPER_STATUS)
+        speed = self._walk_int_table(switch, IF_HIGH_SPEED)
+        pvid = self._walk_int_table(switch, DOT1Q_PVID)
+
+        # PoE OIDs (PoE switches only)
+        poe_admin: dict[int, int] = {}
+        poe_detect: dict[int, int] = {}
+        if switch.poe_port_count > 0:
+            POE_ADMIN = "1.3.6.1.2.1.105.1.1.1.3.1"
+            POE_DETECT = "1.3.6.1.2.1.105.1.1.1.6.1"
+            poe_admin = self._walk_int_table(switch, POE_ADMIN)
+            poe_detect = self._walk_int_table(switch, POE_DETECT)
+
+        # Cached lookups
+        vlan_names = self.fetch_vlan_names(switch)
+        port_descs = self.fetch_port_descriptions(switch)
+        lldp = self.fetch_lldp_neighbors(switch)
+
+        # Build per-port dict
+        OPER_MAP = {1: "up", 2: "down"}
+        POE_ADMIN_MAP = {1: "enabled", 2: "disabled"}
+        POE_DETECT_MAP = {1: "unused", 2: "searching", 3: "delivering", 4: "fault"}
+
+        ports: dict[int, dict] = {}
+        for port in range(1, switch.port_count + 1):
+            data: dict = {
+                "link": OPER_MAP.get(oper.get(port, 2), "down"),
+                "speed_mbps": speed.get(port, 0),
+                "vlan_pvid": pvid.get(port, 0),
+                "vlan_name": vlan_names.get(pvid.get(port, 0), ""),
+                "description": port_descs.get(port, ""),
+                "lldp_neighbor": lldp.get(port, ""),
+            }
+            if port <= switch.poe_port_count:
+                data["poe_admin"] = POE_ADMIN_MAP.get(poe_admin.get(port, 0), "")
+                data["poe_status"] = POE_DETECT_MAP.get(poe_detect.get(port, 0), "")
+            ports[port] = data
+
+        return ports
 
     def fetch_port_descriptions(self, switch: SwitchConfig) -> dict[int, str]:
         """Fetch port descriptions from switch via SNMP ifAlias.
