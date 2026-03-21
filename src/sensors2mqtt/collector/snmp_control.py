@@ -28,7 +28,6 @@ import paho.mqtt.client as mqtt
 
 from sensors2mqtt.base import MqttConfig
 from sensors2mqtt.collector.snmp import (
-    SnmpCollector,
     SwitchConfig,
     load_config,
     parse_snmpget_value,
@@ -117,7 +116,6 @@ class PoeController:
         self._client: mqtt.Client | None = None
         self._stop_event = threading.Event()
         self._executor = ThreadPoolExecutor(max_workers=4)
-        self._collector = SnmpCollector(config=mqtt_config, switches=switches)
 
     def _snmpget_int(self, switch: SwitchConfig, oid: str, port: int) -> int | None:
         """SNMP GET a single integer value for a port."""
