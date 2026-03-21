@@ -105,16 +105,16 @@ class WalkSensorDef:
 
 
 # ---------------------------------------------------------------------------
-# M4300-24X switch definition
+# sw-netgear-m4300-24x switch definition
 # ---------------------------------------------------------------------------
 
 # boxServices MIB base: 1.3.6.1.4.1.4526.10.43.1
 _M4300_BOX = "1.3.6.1.4.1.4526.10.43.1"
 
 M4300_24X = SwitchConfig(
-    node_id="m4300_24x",
-    name="M4300-24X",
-    host="10.1.5.13",
+    node_id="sw_netgear_m4300_24x",
+    name="sw-netgear-m4300-24x",
+    host="sw-netgear-m4300-24x.welland.mithis.com",
     community="public",
     manufacturer="Netgear",
     model="M4300-24X",
@@ -145,16 +145,16 @@ M4300_24X = SwitchConfig(
 
 
 # ---------------------------------------------------------------------------
-# GSM7252PS-S1 switch definition
+# sw-netgear-gsm7252ps-s2 switch definition
 # ---------------------------------------------------------------------------
 
 # FASTPATH PoE MIB: 1.3.6.1.4.1.4526.10.15.1.1.1
 _GSM7252PS_POE = "1.3.6.1.4.1.4526.10.15.1.1.1"
 
-GSM7252PS_S1 = SwitchConfig(
-    node_id="gsm7252ps_s1",
-    name="GSM7252PS-S1",
-    host="10.1.5.23",
+GSM7252PS_S2 = SwitchConfig(
+    node_id="sw_netgear_gsm7252ps_s2",
+    name="sw-netgear-gsm7252ps-s2",
+    host="sw-netgear-gsm7252ps-s2.welland.mithis.com",
     community="public",
     manufacturer="Netgear",
     model="GSM7252PS",
@@ -173,17 +173,17 @@ GSM7252PS_S1 = SwitchConfig(
 )
 
 # ---------------------------------------------------------------------------
-# S3300 (GSM7228PS) switch definition
+# sw-netgear-s3300-1 switch definition
 # ---------------------------------------------------------------------------
 
 # S3300 uses 4526.11 (Smart Managed Pro) instead of 4526.10 (Fully Managed)
 _S3300_BOX = "1.3.6.1.4.1.4526.11.43.1"
 _S3300_POE = "1.3.6.1.4.1.4526.11.15.1.1.1"
 
-S3300 = SwitchConfig(
-    node_id="s3300",
-    name="S3300-52X-PoE+",
-    host="10.1.5.11",
+S3300_1 = SwitchConfig(
+    node_id="sw_netgear_s3300_1",
+    name="sw-netgear-s3300-1",
+    host="sw-netgear-s3300-1.welland.mithis.com",
     community="public",
     manufacturer="Netgear",
     model="GSM7228PS",
@@ -229,7 +229,7 @@ S3300 = SwitchConfig(
 )
 
 # All switches to poll
-SWITCHES: list[SwitchConfig] = [M4300_24X, GSM7252PS_S1, S3300]
+SWITCHES: list[SwitchConfig] = [M4300_24X, GSM7252PS_S2, S3300_1]
 
 
 # ---------------------------------------------------------------------------

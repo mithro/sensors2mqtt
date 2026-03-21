@@ -4,9 +4,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from sensors2mqtt.collector.snmp import (
-    GSM7252PS_S1,
+    GSM7252PS_S2,
     M4300_24X,
-    S3300,
+    S3300_1,
     SWITCHES,
     SnmpCollector,
     parse_snmpget_value,
@@ -112,16 +112,26 @@ class TestSwitchDefinitions:
         assert "temp" in suffixes
         assert "psu_power" in suffixes
 
+    def test_m4300_uses_hostname(self):
+        assert M4300_24X.node_id == "sw_netgear_m4300_24x"
+        assert M4300_24X.name == "sw-netgear-m4300-24x"
+        assert "welland.mithis.com" in M4300_24X.host
+
     def test_gsm7252ps_has_walk_sensors(self):
-        assert len(GSM7252PS_S1.walk_sensors) >= 1
-        walk = GSM7252PS_S1.walk_sensors[0]
+        assert len(GSM7252PS_S2.walk_sensors) >= 1
+        walk = GSM7252PS_S2.walk_sensors[0]
         assert "poe" in walk.suffix_template
         assert walk.min_index == 1
         assert walk.max_index == 48
 
+    def test_gsm7252ps_uses_hostname(self):
+        assert GSM7252PS_S2.node_id == "sw_netgear_gsm7252ps_s2"
+        assert GSM7252PS_S2.name == "sw-netgear-gsm7252ps-s2"
+        assert "welland.mithis.com" in GSM7252PS_S2.host
+
     def test_s3300_has_sensors(self):
-        assert len(S3300.sensors) >= 5
-        suffixes = {s.suffix for s in S3300.sensors}
+        assert len(S3300_1.sensors) >= 5
+        suffixes = {s.suffix for s in S3300_1.sensors}
         assert "fan1_rpm" in suffixes
         assert "fan2_rpm" in suffixes
         assert "fan3_rpm" in suffixes
@@ -129,25 +139,37 @@ class TestSwitchDefinitions:
         assert "psu_power" in suffixes
 
     def test_s3300_has_walk_sensors(self):
-        assert len(S3300.walk_sensors) >= 1
-        walk = S3300.walk_sensors[0]
+        assert len(S3300_1.walk_sensors) >= 1
+        walk = S3300_1.walk_sensors[0]
         assert "poe" in walk.suffix_template
+
+    def test_s3300_uses_hostname(self):
+        assert S3300_1.node_id == "sw_netgear_s3300_1"
+        assert S3300_1.name == "sw-netgear-s3300-1"
+        assert "welland.mithis.com" in S3300_1.host
 
     def test_s3300_uses_dot11_oids(self):
         """S3300 uses 4526.11 (Smart Managed Pro), not 4526.10."""
-        for sensor in S3300.sensors:
+        for sensor in S3300_1.sensors:
             assert ".4526.11." in sensor.oid, (
                 f"{sensor.suffix} OID should use .4526.11.: {sensor.oid}"
             )
-        for walk in S3300.walk_sensors:
+        for walk in S3300_1.walk_sensors:
             assert ".4526.11." in walk.base_oid
 
     def test_switches_list(self):
         assert len(SWITCHES) == 3
         ids = {s.node_id for s in SWITCHES}
-        assert "m4300_24x" in ids
-        assert "gsm7252ps_s1" in ids
-        assert "s3300" in ids
+        assert "sw_netgear_m4300_24x" in ids
+        assert "sw_netgear_gsm7252ps_s2" in ids
+        assert "sw_netgear_s3300_1" in ids
+
+    def test_all_hosts_use_dns(self):
+        """All switches must use DNS hostnames, not hardcoded IPs."""
+        for switch in SWITCHES:
+            assert not switch.host[0].isdigit(), (
+                f"{switch.name} uses IP address {switch.host} instead of DNS hostname"
+            )
 
 
 class TestSnmpCollector:
@@ -225,8 +247,8 @@ class TestSnmpCollector:
             stdout=poe_output,
             stderr="",
         )
-        collector = self.make_collector(switches=[GSM7252PS_S1])
-        values = collector.poll_switch(GSM7252PS_S1)
+        collector = self.make_collector(switches=[GSM7252PS_S2])
+        values = collector.poll_switch(GSM7252PS_S2)
         assert values is not None
         assert "port1_poe_mw" in values
         assert values["port1_poe_mw"] == 3300.0
@@ -242,9 +264,9 @@ class TestSnmpCollector:
         assert "fan1_rpm" in suffixes
 
     def test_get_sensors_for_switch_dynamic(self):
-        collector = self.make_collector(switches=[GSM7252PS_S1])
+        collector = self.make_collector(switches=[GSM7252PS_S2])
         values = {"port1_poe_mw": 3300, "port5_poe_mw": 5600}
-        sensors = collector.get_sensors_for_switch(GSM7252PS_S1, values)
+        sensors = collector.get_sensors_for_switch(GSM7252PS_S2, values)
         assert len(sensors) == 2
         names = {s.name for s in sensors}
         assert "Port 1 PoE Power" in names
@@ -252,5 +274,5 @@ class TestSnmpCollector:
 
     def test_topics(self):
         collector = self.make_collector()
-        assert collector.state_topic(M4300_24X) == "sensors2mqtt/m4300_24x/state"
-        assert collector.avail_topic(M4300_24X) == "sensors2mqtt/m4300_24x/status"
+        assert collector.state_topic(M4300_24X) == "sensors2mqtt/sw_netgear_m4300_24x/state"
+        assert collector.avail_topic(M4300_24X) == "sensors2mqtt/sw_netgear_m4300_24x/status"
