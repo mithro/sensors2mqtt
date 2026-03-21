@@ -28,6 +28,8 @@ def _make_switch(name: str, model_name: str) -> SwitchConfig:
         community="public",
         manufacturer=model.manufacturer,
         model=model.model,
+        port_count=model.port_count,
+        poe_port_count=model.poe_port_count,
         sensors=list(model.sensors),
         walk_sensors=list(model.walk_sensors),
     )
@@ -398,3 +400,76 @@ class TestSnmpCollector:
         collector = self.make_collector(switches=[sw])
         assert collector.state_topic(sw) == "sensors2mqtt/test_m4300/state"
         assert collector.avail_topic(sw) == "sensors2mqtt/test_m4300/status"
+
+    @patch("sensors2mqtt.collector.snmp.subprocess.run")
+    def test_poll_port_status_m4300(self, mock_run):
+        """M4300 (no PoE) returns link/speed/vlan for all 24 ports."""
+        oper_text = (FIXTURES / "snmpwalk_m4300_ifoperstatus.txt").read_text()
+        speed_text = (FIXTURES / "snmpwalk_m4300_ifhighspeed.txt").read_text()
+        pvid_text = (FIXTURES / "snmpwalk_m4300_dot1qpvid.txt").read_text()
+        vlan_names_text = (FIXTURES / "snmpwalk_m4300_vlan_names.txt").read_text()
+
+        def side_effect(*args, **kwargs):
+            cmd = args[0]
+            oid = cmd[-1]
+            if "2.2.1.8" in oid:
+                return MagicMock(returncode=0, stdout=oper_text, stderr="")
+            elif "31.1.1.1.15" in oid:
+                return MagicMock(returncode=0, stdout=speed_text, stderr="")
+            elif "17.7.1.4.5.1.1" in oid:
+                return MagicMock(returncode=0, stdout=pvid_text, stderr="")
+            elif "17.7.1.4.3.1.1" in oid:
+                return MagicMock(returncode=0, stdout=vlan_names_text, stderr="")
+            # ifAlias and LLDP return empty
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_run.side_effect = side_effect
+        sw = _make_switch("test-m4300", "m4300")
+        collector = self.make_collector(switches=[sw])
+        ports = collector.poll_port_status(sw)
+
+        # M4300 has 24 ports
+        assert len(ports) == 24
+        # Port 1 should be up with 10G
+        assert ports[1]["link"] == "up"
+        assert ports[1]["speed_mbps"] == 10000
+        # No PoE fields on M4300
+        assert "poe_admin" not in ports[1]
+        assert "poe_status" not in ports[1]
+
+    @patch("sensors2mqtt.collector.snmp.subprocess.run")
+    def test_poll_port_status_gsm7252ps(self, mock_run):
+        """GSM7252PS (PoE) returns link/speed/vlan + PoE fields."""
+        fixtures = {
+            "2.2.1.8": "snmpwalk_gsm7252ps_ifoperstatus.txt",
+            "31.1.1.1.15": "snmpwalk_gsm7252ps_ifhighspeed.txt",
+            "17.7.1.4.5.1.1": "snmpwalk_gsm7252ps_dot1qpvid.txt",
+            "17.7.1.4.3.1.1": "snmpwalk_gsm7252ps_vlan_names.txt",
+            "105.1.1.1.3.1": "snmpwalk_gsm7252ps_poe_admin.txt",
+            "105.1.1.1.6.1": "snmpwalk_gsm7252ps_poe_detect.txt",
+        }
+
+        def side_effect(*args, **kwargs):
+            cmd = args[0]
+            oid = cmd[-1]
+            for key, fname in fixtures.items():
+                if key in oid:
+                    text = (FIXTURES / fname).read_text()
+                    return MagicMock(returncode=0, stdout=text, stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_run.side_effect = side_effect
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps")
+        collector = self.make_collector(switches=[sw])
+        ports = collector.poll_port_status(sw)
+
+        # GSM7252PS has 52 ports
+        assert len(ports) == 52
+        # Port 1 has PoE delivering
+        assert ports[1]["link"] == "up"
+        assert ports[1]["poe_admin"] == "enabled"
+        assert ports[1]["poe_status"] == "delivering"
+        assert ports[1]["vlan_pvid"] == 90
+        # Ports 49-52 are SFP+ uplinks (no PoE fields)
+        assert "poe_admin" not in ports[49]
+        assert "poe_status" not in ports[49]
