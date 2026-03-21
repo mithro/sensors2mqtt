@@ -291,9 +291,27 @@ class TestSnmpCollector:
         values = {"port01_poe_mw": 3300, "port05_poe_mw": 5600}
         sensors = collector.get_sensors_for_switch(sw, values)
         assert len(sensors) == 2
+        # No port descriptions cached → generic names
         names = {s.name for s in sensors}
         assert "Port 01 PoE Power" in names
         assert "Port 05 PoE Power" in names
+
+    def test_get_sensors_with_port_descriptions(self):
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps")
+        collector = self.make_collector(switches=[sw])
+        # Simulate cached port descriptions (as if fetched from SNMP ifAlias)
+        collector._port_descriptions[sw.node_id] = {
+            1: "rpi5-pmod",
+            5: "rpi4-usbdev",
+        }
+        values = {"port01_poe_mw": 3300, "port05_poe_mw": 5600, "port10_poe_mw": 0}
+        sensors = collector.get_sensors_for_switch(sw, values)
+        names = {s.name for s in sensors}
+        # Ports with descriptions get friendly names
+        assert "(Port 01 PoE) rpi5-pmod" in names
+        assert "(Port 05 PoE) rpi4-usbdev" in names
+        # Port without description gets generic name
+        assert "Port 10 PoE Power" in names
 
     def test_topics(self):
         sw = _make_switch("test-m4300", "m4300")
