@@ -462,14 +462,7 @@ class SnmpCollector:
                     alias = m.group(2).strip()
                     if not alias:
                         continue
-                    # Strip interface prefix: "eth0.rpi5-pmod" → "rpi5-pmod"
-                    # Handles: eth0.X, lan.X, 1/0/2.X, any "prefix.hostname" pattern
-                    dot_pos = alias.find(".")
-                    if dot_pos >= 0:
-                        device_name = alias[dot_pos + 1:]
-                    else:
-                        device_name = alias
-                    descriptions[port] = device_name
+                    descriptions[port] = alias
         except subprocess.TimeoutExpired:
             log.warning("%s: ifAlias walk timed out", switch.name)
         except Exception as e:
