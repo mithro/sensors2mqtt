@@ -1,0 +1,15 @@
+[Unit]
+Description=sensors2mqtt PoE control service (Netgear switches)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/sensors2mqtt/bin/python -m sensors2mqtt.collector.snmp_control --config /etc/sensors2mqtt/snmp.toml
+Restart=always
+RestartSec=10
+Environment=MQTT_HOST=ha.welland.mithis.com
+Environment=POLL_INTERVAL=30
+
+[Install]
+WantedBy=multi-user.target
