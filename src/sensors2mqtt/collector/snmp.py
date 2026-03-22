@@ -683,17 +683,27 @@ class SnmpCollector:
             except Exception as e:
                 log.warning("%s: LLDP .%s walk error: %s", switch.name, field_oid, e)
 
+        # Strip "<site>.mithis.com" domain suffix from sysName values
+        for port in sys_names:
+            sn = sys_names[port]
+            parts = sn.split(".")
+            # e.g. "sw-bb-25g.net.welland.mithis.com" → "sw-bb-25g"
+            # e.g. "ten64.welland.mithis.com" → "ten64"
+            if len(parts) >= 3 and parts[-1] == "com" and parts[-2] == "mithis":
+                sys_names[port] = parts[0]
+
         # Combine as "port_desc.sys_name" (e.g. "eth0.rpi5-pmod") to match ifAlias convention
         neighbors: dict[int, str] = {}
         all_ports = set(sys_names.keys()) | set(port_descs.keys())
         for port in all_ports:
-            parts = []
-            if port in port_descs:
-                parts.append(port_descs[port])
-            if port in sys_names:
-                parts.append(sys_names[port])
-            if parts:
-                neighbors[port] = ".".join(parts)
+            pd = port_descs.get(port, "")
+            sn = sys_names.get(port, "")
+            if pd and sn:
+                neighbors[port] = f"{pd}.{sn}"
+            elif pd:
+                neighbors[port] = pd
+            elif sn:
+                neighbors[port] = sn
 
         self._lldp_neighbors[switch.node_id] = neighbors
         if neighbors:
