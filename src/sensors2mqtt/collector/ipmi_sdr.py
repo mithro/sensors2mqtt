@@ -81,6 +81,21 @@ SDR_SENSOR_MAP: dict[str, tuple[str, str, str | None, str, str | None]] = {
     "FAN3": ("fan3_rpm", "Fan 3", None, "RPM", "mdi:fan"),
     "FAN5": ("fan5_rpm", "Fan 5", None, "RPM", "mdi:fan"),
     "PW Consumption": ("power_consumption", "Board Power Consumption", "power", "W", None),
+    # Voltage rails
+    "12V": ("rail_12v", "12V Rail", "voltage", "V", None),
+    "5VCC": ("rail_5v", "5V Rail", "voltage", "V", None),
+    "3.3VCC": ("rail_3v3", "3.3V Rail", "voltage", "V", None),
+    "Vcpu1": ("vcpu1", "CPU1 Voltage", "voltage", "V", None),
+    "Vcpu2": ("vcpu2", "CPU2 Voltage", "voltage", "V", None),
+    "VDimmP1ABC": ("vdimm_p1abc", "DIMM P1 ABC Voltage", "voltage", "V", None),
+    "VDimmP1DEF": ("vdimm_p1def", "DIMM P1 DEF Voltage", "voltage", "V", None),
+    "VDimmP2ABC": ("vdimm_p2abc", "DIMM P2 ABC Voltage", "voltage", "V", None),
+    "VDimmP2DEF": ("vdimm_p2def", "DIMM P2 DEF Voltage", "voltage", "V", None),
+    "5VSB": ("rail_5vsb", "5V Standby", "voltage", "V", None),
+    "3.3VSB": ("rail_3v3sb", "3.3V Standby", "voltage", "V", None),
+    "1.8V PCH": ("rail_1v8_pch", "1.8V PCH", "voltage", "V", None),
+    "PVNN PCH": ("rail_pvnn_pch", "PVNN PCH Voltage", "voltage", "V", None),
+    "1.05V PCH": ("rail_1v05_pch", "1.05V PCH", "voltage", "V", None),
 }
 
 # Per-PSU sensors (published on separate state topics)
