@@ -14,7 +14,7 @@ standalone systemd service on the target host.
 |-----------|------|-------------|---------|
 | **snmp** | ten64 (router) | SNMP polls to managed switches | M4300 fans/thermal/PSU, GSM7252PS PoE power |
 | **hwmon** | sw-bb-25g (Mellanox SN2410) | `sensors -j` (local hwmon) | ASIC temp, CPU temp, board temp, 8 fans |
-| **ipmi_sdr** | big-storage (Supermicro X11DSC+) | `ipmitool sdr` + BMC web API | CPU/board/VRM/DIMM temps, fans, per-PSU PMBus |
+| **ipmi_sdr** | big-storage (Supermicro X11DSC+) | IPMI Sensor Data Records + BMC web API | CPU/board/VRM/DIMM temps, fans, voltages, per-PSU PMBus |
 
 ## Install
 
@@ -39,7 +39,7 @@ uv run python -m sensors2mqtt.collector.snmp
 # Hwmon collector (on sw-bb-25g)
 uv run python -m sensors2mqtt.collector.hwmon
 
-# IPMI SDR collector (on big-storage)
+# IPMI sensor collector (on big-storage)
 uv run python -m sensors2mqtt.collector.ipmi_sdr
 ```
 
@@ -53,7 +53,7 @@ uv run python -m sensors2mqtt.collector.ipmi_sdr
 | `MQTT_PASSWORD` | `DVES_USER` | MQTT password |
 | `POLL_INTERVAL` | `30` | Seconds between polls |
 
-The IPMI SDR collector also reads `BMC_HOST`, `BMC_USER`, `BMC_PASS`.
+The IPMI sensor collector also reads `BMC_HOST`, `BMC_USER`, `BMC_PASS`.
 
 ## Architecture
 

@@ -1,7 +1,7 @@
-"""IPMI SDR collector: publish big-storage sensor data to MQTT.
+"""IPMI sensor collector: publish big-storage sensor data to MQTT.
 
 Runs locally on big-storage. Combines two data sources:
-1. IPMI SDR via `ipmitool -I lanplus` — board temps, fans, power
+1. IPMI Sensor Data Record (ipmitool sdr) — board temps, fans, voltages, power
 2. BMC web API — per-PSU PMBus data (AC/DC voltage, current, power, temps, fans)
 
 Usage:
@@ -45,8 +45,9 @@ DEVICE = DeviceInfo(
     configuration_url=None,  # set dynamically from BMC_HOST
 )
 
-# SDR sensor name -> (suffix, friendly_name, device_class, unit, icon)
-SDR_SENSOR_MAP: dict[str, tuple[str, str, str | None, str, str | None]] = {
+# IPMI sensor name -> (suffix, friendly_name, device_class, unit, icon)
+# These map `ipmitool sdr list full` output names to HA discovery suffixes.
+IPMI_SENSOR_MAP: dict[str, tuple[str, str, str | None, str, str | None]] = {
     "CPU1 Temp": ("cpu1_temp", "CPU1 Temperature", "temperature", "°C", None),
     "CPU2 Temp": ("cpu2_temp", "CPU2 Temperature", "temperature", "°C", None),
     "PCH Temp": ("pch_temp", "PCH Temperature", "temperature", "°C", None),
@@ -154,11 +155,11 @@ PSU_SENSORS: list[tuple[str, str, str | None, str, str, str | None, str]] = [
 
 
 # ---------------------------------------------------------------------------
-# SDR parsing
+# IPMI Sensor Data Record parsing
 # ---------------------------------------------------------------------------
 
 
-def parse_sdr(output: str) -> dict:
+def parse_ipmi_sensors(output: str) -> dict:
     """Parse ipmitool sdr list full output into {suffix: value}."""
     values = {}
     for line in output.strip().splitlines():
@@ -167,11 +168,11 @@ def parse_sdr(output: str) -> dict:
             continue
         sensor_name = parts[0]
         value_str = parts[1]
-        if sensor_name not in SDR_SENSOR_MAP:
+        if sensor_name not in IPMI_SENSOR_MAP:
             continue
         if value_str == "no reading":
             continue
-        suffix = SDR_SENSOR_MAP[sensor_name][0]
+        suffix = IPMI_SENSOR_MAP[sensor_name][0]
         m = re.match(r"([\d.]+)", value_str)
         if m:
             values[suffix] = float(m.group(1))
@@ -263,12 +264,12 @@ def poll_bmc_psu(bmc_host: str, bmc_user: str, bmc_pass: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# SDR polling
+# IPMI sensor polling
 # ---------------------------------------------------------------------------
 
 
-def poll_sdr(bmc_host: str, bmc_user: str, bmc_pass: str) -> dict | None:
-    """Query IPMI SDR via network and parse output."""
+def poll_ipmi_sensors(bmc_host: str, bmc_user: str, bmc_pass: str) -> dict | None:
+    """Query IPMI Sensor Data Records via network and parse output."""
     try:
         result = subprocess.run(
             [
@@ -292,21 +293,21 @@ def poll_sdr(bmc_host: str, bmc_user: str, bmc_pass: str) -> dict | None:
         if result.returncode != 0:
             log.warning("ipmitool failed (rc=%d): %s", result.returncode, result.stderr.strip())
             return None
-        return parse_sdr(result.stdout)
+        return parse_ipmi_sensors(result.stdout)
     except subprocess.TimeoutExpired:
         log.warning("ipmitool timed out")
         return None
 
 
 # ---------------------------------------------------------------------------
-# MQTT discovery for SDR + PSU
+# MQTT discovery for IPMI sensors + PSU
 # ---------------------------------------------------------------------------
 
 
-def get_sdr_sensors() -> list[SensorDef]:
-    """Build SensorDef list from SDR_SENSOR_MAP."""
+def get_ipmi_sensors() -> list[SensorDef]:
+    """Build SensorDef list from IPMI_SENSOR_MAP."""
     sensors = []
-    for suffix, name, dev_class, unit, icon in SDR_SENSOR_MAP.values():
+    for suffix, name, dev_class, unit, icon in IPMI_SENSOR_MAP.values():
         sensors.append(
             SensorDef(
                 suffix=suffix,
@@ -395,7 +396,7 @@ def main():
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
-    parser = argparse.ArgumentParser(description="IPMI SDR + BMC PSU sensor collector")
+    parser = argparse.ArgumentParser(description="IPMI sensor + BMC PSU collector")
     parser.add_argument("--once", action="store_true", help="Poll once and exit")
     parser.add_argument("--log-level", default="INFO",
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -447,19 +448,19 @@ def main():
 
     try:
         while not stop_event.is_set():
-            log.info("Polling IPMI SDR + BMC PSU")
-            sdr_values = poll_sdr(bmc_host, bmc_user, bmc_pass)
+            log.info("Polling IPMI sensors + BMC PSU")
+            ipmi_values = poll_ipmi_sensors(bmc_host, bmc_user, bmc_pass)
             psu_data = poll_bmc_psu(bmc_host, bmc_user, bmc_pass)
 
-            if sdr_values is None and psu_data is None:
+            if ipmi_values is None and psu_data is None:
                 client.publish(avail_topic, "offline", retain=True)
                 log.warning("No sensor data from either source")
             else:
                 if not discovery_published:
-                    sdr_sensors = get_sdr_sensors()
-                    sdr_count = publish_discovery(
+                    ipmi_sensors = get_ipmi_sensors()
+                    ipmi_count = publish_discovery(
                         client,
-                        sdr_sensors,
+                        ipmi_sensors,
                         device_info,
                         state_topic,
                         avail_topic,
@@ -473,11 +474,11 @@ def main():
                             avail_topic,
                         )
                     discovery_published = True
-                    log.info("Published discovery: %d SDR + %d PSU sensors", sdr_count, psu_count)
+                    log.info("Published discovery: %d IPMI + %d PSU sensors", ipmi_count, psu_count)
 
-                if sdr_values is None:
-                    sdr_values = {}
-                publish_state(client, state_topic, sdr_values)
+                if ipmi_values is None:
+                    ipmi_values = {}
+                publish_state(client, state_topic, ipmi_values)
                 client.publish(avail_topic, "online", retain=True)
 
                 if psu_data:
@@ -490,8 +491,8 @@ def main():
                     p.get("dc_12v_output_power_w", 0) or 0 for p in (psu_data or {}).get("psus", [])
                 )
                 log.info(
-                    "Published: SDR=%d sensors, PSU=%d units (%.0fW DC total)",
-                    len(sdr_values),
+                    "Published: IPMI=%d sensors, PSU=%d units (%.0fW DC total)",
+                    len(ipmi_values),
                     len((psu_data or {}).get("psus", [])),
                     psu_power,
                 )

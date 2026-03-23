@@ -10,7 +10,7 @@
 - [x] Step 6: Per-port state topics + per-port discovery + --once flag — f2f161e
 - [x] Step 7: Clean up old retained MQTT messages — d28e7d0
 - [x] Step 8: Capture fixture data + tests — 0098859
-- [x] Review fix: add state_class + origin to IPMI SDR collector — 32098c7
+- [x] Review fix: add state_class + origin to IPMI sensor collector — 32098c7
 - [x] Code review checkpoint (Part 1 complete) — 32098c7
 
 Live test results (--once mode):

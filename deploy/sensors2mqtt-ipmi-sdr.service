@@ -1,5 +1,5 @@
 [Unit]
-Description=sensors2mqtt IPMI SDR collector (big-storage)
+Description=sensors2mqtt IPMI sensor collector (big-storage)
 After=network-online.target
 Wants=network-online.target
 

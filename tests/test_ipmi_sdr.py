@@ -1,23 +1,23 @@
-"""Tests for IPMI SDR collector."""
+"""Tests for IPMI sensor collector."""
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from sensors2mqtt.collector.ipmi_sdr import (
+    IPMI_SENSOR_MAP,
     PSU_SENSORS,
-    SDR_SENSOR_MAP,
     parse_bmc_psu_xml,
-    parse_sdr,
-    poll_sdr,
+    parse_ipmi_sensors,
+    poll_ipmi_sensors,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-class TestParseSdr:
+class TestParseIpmiSensors:
     def test_parse_fixture(self):
         text = (FIXTURES / "ipmitool_sdr_big_storage.txt").read_text()
-        values = parse_sdr(text)
+        values = parse_ipmi_sensors(text)
         assert len(values) > 0
         assert "cpu1_temp" in values
         assert "cpu2_temp" in values
@@ -26,7 +26,7 @@ class TestParseSdr:
 
     def test_fixture_values_reasonable(self):
         text = (FIXTURES / "ipmitool_sdr_big_storage.txt").read_text()
-        values = parse_sdr(text)
+        values = parse_ipmi_sensors(text)
         # Temps between 0 and 120 °C
         for key, val in values.items():
             if key.endswith("_temp"):
@@ -35,11 +35,11 @@ class TestParseSdr:
                 assert 0 <= val <= 30000, f"{key}={val}"
 
     def test_all_mapped_sensors_found(self):
-        """All SDR sensors in the map should appear in fixture output."""
+        """All IPMI sensors in the map should appear in fixture output."""
         text = (FIXTURES / "ipmitool_sdr_big_storage.txt").read_text()
-        values = parse_sdr(text)
+        values = parse_ipmi_sensors(text)
         # At least most sensors should be present (some may say "no reading")
-        expected = {v[0] for v in SDR_SENSOR_MAP.values()}
+        expected = {v[0] for v in IPMI_SENSOR_MAP.values()}
         found = set(values.keys())
         # Allow a few missing (disabled sensors, etc.)
         assert len(found) >= len(expected) * 0.8, (
@@ -48,12 +48,12 @@ class TestParseSdr:
 
     def test_no_reading_skipped(self):
         output = "CPU1 Temp        | no reading        | ns\n"
-        values = parse_sdr(output)
+        values = parse_ipmi_sensors(output)
         assert "cpu1_temp" not in values
 
     def test_unknown_sensor_skipped(self):
         output = "Unknown Sensor   | 42 degrees C      | ok\n"
-        values = parse_sdr(output)
+        values = parse_ipmi_sensors(output)
         assert len(values) == 0
 
 
@@ -100,32 +100,32 @@ class TestParseBmcPsuXml:
         assert len(result["psus"]) == 0
 
 
-class TestPollSdr:
+class TestPollIpmiSensors:
     @patch("sensors2mqtt.collector.ipmi_sdr.subprocess.run")
     def test_success(self, mock_run):
         text = (FIXTURES / "ipmitool_sdr_big_storage.txt").read_text()
         mock_run.return_value = MagicMock(returncode=0, stdout=text, stderr="")
-        values = poll_sdr("10.1.5.150", "ADMIN", "ADMIN")
+        values = poll_ipmi_sensors("10.1.5.150", "ADMIN", "ADMIN")
         assert values is not None
         assert "cpu1_temp" in values
 
     @patch("sensors2mqtt.collector.ipmi_sdr.subprocess.run")
     def test_failure(self, mock_run):
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Connection timed out")
-        values = poll_sdr("10.1.5.150", "ADMIN", "ADMIN")
+        values = poll_ipmi_sensors("10.1.5.150", "ADMIN", "ADMIN")
         assert values is None
 
     @patch("sensors2mqtt.collector.ipmi_sdr.subprocess.run")
     def test_timeout(self, mock_run):
         import subprocess
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="ipmitool", timeout=30)
-        values = poll_sdr("10.1.5.150", "ADMIN", "ADMIN")
+        values = poll_ipmi_sensors("10.1.5.150", "ADMIN", "ADMIN")
         assert values is None
 
 
 class TestSensorDefinitions:
-    def test_sdr_map_suffixes_unique(self):
-        suffixes = [v[0] for v in SDR_SENSOR_MAP.values()]
+    def test_ipmi_map_suffixes_unique(self):
+        suffixes = [v[0] for v in IPMI_SENSOR_MAP.values()]
         assert len(suffixes) == len(set(suffixes))
 
     def test_psu_sensors_value_keys_unique(self):

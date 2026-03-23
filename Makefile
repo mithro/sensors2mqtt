@@ -59,7 +59,7 @@ install-hwmon: _install-base ## Install hwmon collector (sw-bb-25g)
 	$(call install-service,sensors2mqtt-hwmon)
 
 .PHONY: install-ipmi
-install-ipmi: _install-base ## Install IPMI SDR collector (big-storage)
+install-ipmi: _install-base ## Install IPMI sensor collector (big-storage)
 	$(call install-service,sensors2mqtt-ipmi-sdr)
 
 .PHONY: clean
