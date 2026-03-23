@@ -30,6 +30,7 @@ from sensors2mqtt.base import MqttConfig
 from sensors2mqtt.collector.snmp import (
     SwitchConfig,
     load_config,
+    parse_lldp_walk,
     parse_snmpget_value,
 )
 from sensors2mqtt.discovery import ORIGIN, DeviceInfo, _device_dict
@@ -38,6 +39,7 @@ log = logging.getLogger(__name__)
 
 # SNMP OIDs
 IF_ALIAS_OID = "1.3.6.1.2.1.31.1.1.1.18"          # ifAlias (port descriptions)
+LLDP_REM_OID = "1.0.8802.1.1.2.1.4.1.1"            # LLDP remote table base
 
 # SNMP OIDs for PoE control
 POE_ADMIN_OID = "1.3.6.1.2.1.105.1.1.1.3.1"   # pethPsePortAdminEnable (R/W)
@@ -83,7 +85,7 @@ def fetch_port_descriptions(switch: SwitchConfig, timeout: int = 30) -> dict[int
 
 
 def extract_hostname(description: str) -> str:
-    """Extract the hostname portion from an ifAlias description.
+    """Extract the hostname portion from an ifAlias or LLDP description.
 
     Convention: "interface.hostname" (e.g. "eth0.rpi5-pmod" → "rpi5-pmod").
     If no dot separator, returns the whole description.
@@ -92,6 +94,58 @@ def extract_hostname(description: str) -> str:
     if dot >= 0:
         return description[dot + 1:]
     return description
+
+
+def fetch_lldp_neighbors(switch: SwitchConfig, timeout: int = 30) -> dict[int, str]:
+    """Fetch LLDP neighbor sysName per port from switch.
+
+    Returns {port_number: sys_name} with domain suffixes stripped.
+    """
+    sys_names: dict[int, str] = {}
+    try:
+        result = subprocess.run(
+            ["snmpwalk", "-v2c", "-c", switch.community, switch.host,
+             f"{LLDP_REM_OID}.9"],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        if result.returncode != 0:
+            log.warning("%s: LLDP sysName walk failed: %s",
+                        switch.name, result.stderr.strip())
+            return sys_names
+        sys_names = parse_lldp_walk(result.stdout, "9")
+    except subprocess.TimeoutExpired:
+        log.warning("%s: LLDP sysName walk timed out", switch.name)
+    except Exception as e:
+        log.warning("%s: LLDP sysName walk error: %s", switch.name, e)
+
+    # Strip "<site>.mithis.com" domain suffix
+    for port in sys_names:
+        sn = sys_names[port]
+        parts = sn.split(".")
+        if len(parts) >= 3 and parts[-1] == "com" and parts[-2] == "mithis":
+            sys_names[port] = parts[0]
+
+    if sys_names:
+        log.info("%s: fetched %d LLDP neighbors", switch.name, len(sys_names))
+    return sys_names
+
+
+def fetch_port_hostnames(switch: SwitchConfig) -> dict[int, str]:
+    """Fetch the best hostname for each port using ifAlias + LLDP fallback.
+
+    Priority: ifAlias (admin-configured) > LLDP sysName (auto-discovered).
+    Returns {port_number: hostname} for ports that have identification.
+    """
+    descs = fetch_port_descriptions(switch)
+    lldp = fetch_lldp_neighbors(switch)
+
+    hostnames: dict[int, str] = {}
+    for port in set(descs.keys()) | set(lldp.keys()):
+        if port in descs:
+            hostnames[port] = extract_hostname(descs[port])
+        elif port in lldp:
+            hostnames[port] = lldp[port]
+    return hostnames
 
 
 @dataclass
@@ -461,12 +515,13 @@ class PoeController:
     def publish_discovery(
         self,
         switch: SwitchConfig,
-        port_descs: dict[int, str] | None = None,
+        port_hostnames: dict[int, str] | None = None,
     ) -> int:
         """Publish HA switch/button entity discovery for all PoE ports.
 
-        If port_descs is provided, entity names include the connected hostname
-        extracted from ifAlias (e.g. "Port 01 PoE (rpi5-pmod)").
+        If port_hostnames is provided, entity names include the connected
+        hostname (e.g. "Port 01 PoE (rpi5-pmod)"). Values should be
+        pre-extracted hostnames, not raw ifAlias strings.
         """
         if not self._client:
             return 0
@@ -485,11 +540,10 @@ class PoeController:
             nn = str(port).zfill(2)
             port_avail = f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/available"
 
-            # Build host suffix from port description (ifAlias)
+            # Build host suffix from ifAlias/LLDP hostname
             host_suffix = ""
-            if port_descs and port in port_descs:
-                hostname = extract_hostname(port_descs[port])
-                host_suffix = f" ({hostname})"
+            if port_hostnames and port in port_hostnames:
+                host_suffix = f" ({port_hostnames[port]})"
 
             # PoE Toggle (switch entity)
             toggle_config = {
@@ -638,15 +692,15 @@ class PoeController:
                     client.subscribe(f"sensors2mqtt/{sw.node_id}/port/+/poe/force/set")
                     log.info("%s: subscribed to command topics", sw.name)
 
-            # Fetch port descriptions for entity naming
-            port_descs: dict[str, dict[int, str]] = {}
+            # Fetch port hostnames (ifAlias + LLDP) for entity naming
+            port_hosts: dict[str, dict[int, str]] = {}
             for sw in self.switches:
-                port_descs[sw.node_id] = fetch_port_descriptions(sw)
+                port_hosts[sw.node_id] = fetch_port_hostnames(sw)
 
             # Initial poll + discovery + state publish
             for sw in self.switches:
                 self.poll_all_ports(sw)
-                disc_count = self.publish_discovery(sw, port_descs.get(sw.node_id))
+                disc_count = self.publish_discovery(sw, port_hosts.get(sw.node_id))
                 self.publish_all_poe_states(sw)
                 self.publish_availability(sw)
                 client.publish(f"sensors2mqtt/{sw.node_id}/status", "online", retain=True)

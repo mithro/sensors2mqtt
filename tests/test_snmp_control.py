@@ -13,7 +13,9 @@ from sensors2mqtt.collector.snmp_control import (
     PoeController,
     PortControlState,
     extract_hostname,
+    fetch_lldp_neighbors,
     fetch_port_descriptions,
+    fetch_port_hostnames,
 )
 
 
@@ -632,14 +634,13 @@ class TestFetchPortDescriptions:
 
 class TestDiscoveryWithHostnames:
     def test_toggle_name_includes_hostname(self):
-        """Toggle entity name includes hostname when port has a description."""
+        """Toggle entity name includes hostname from pre-extracted hostnames."""
         ctrl = _make_controller()
         sw = ctrl.switches[0]
-        descs = {1: "eth0.rpi5-pmod", 5: "rpi with rpiz and luna"}
-        ctrl.publish_discovery(sw, port_descs=descs)
+        hostnames = {1: "rpi5-pmod", 5: "rpi with rpiz and luna"}
+        ctrl.publish_discovery(sw, port_hostnames=hostnames)
 
         calls = ctrl._client.publish.call_args_list
-        # Port 01 toggle
         toggle_01 = [c for c in calls if "port01_poe_toggle" in str(c[0][0])]
         payload = json.loads(toggle_01[0][0][1])
         assert payload["name"] == "Port 01 PoE (rpi5-pmod)"
@@ -647,8 +648,8 @@ class TestDiscoveryWithHostnames:
     def test_cycle_name_includes_hostname(self):
         ctrl = _make_controller()
         sw = ctrl.switches[0]
-        descs = {1: "eth0.rpi5-pmod"}
-        ctrl.publish_discovery(sw, port_descs=descs)
+        hostnames = {1: "rpi5-pmod"}
+        ctrl.publish_discovery(sw, port_hostnames=hostnames)
 
         calls = ctrl._client.publish.call_args_list
         cycle_01 = [c for c in calls if "port01_poe_cycle" in str(c[0][0])]
@@ -658,45 +659,96 @@ class TestDiscoveryWithHostnames:
     def test_force_name_includes_hostname(self):
         ctrl = _make_controller()
         sw = ctrl.switches[0]
-        descs = {1: "eth0.rpi5-pmod"}
-        ctrl.publish_discovery(sw, port_descs=descs)
+        hostnames = {1: "rpi5-pmod"}
+        ctrl.publish_discovery(sw, port_hostnames=hostnames)
 
         calls = ctrl._client.publish.call_args_list
         force_01 = [c for c in calls if "port01_poe_force" in str(c[0][0])]
         payload = json.loads(force_01[0][0][1])
         assert payload["name"] == "Port 01 PoE Force (rpi5-pmod)"
 
-    def test_no_description_no_suffix(self):
-        """Port without description keeps plain name."""
+    def test_no_hostname_no_suffix(self):
+        """Port without hostname keeps plain name."""
         ctrl = _make_controller()
         sw = ctrl.switches[0]
-        descs = {1: "eth0.rpi5-pmod"}  # Only port 1 has a desc
-        ctrl.publish_discovery(sw, port_descs=descs)
+        hostnames = {1: "rpi5-pmod"}  # Only port 1
+        ctrl.publish_discovery(sw, port_hostnames=hostnames)
 
         calls = ctrl._client.publish.call_args_list
         toggle_02 = [c for c in calls if "port02_poe_toggle" in str(c[0][0])]
         payload = json.loads(toggle_02[0][0][1])
         assert payload["name"] == "Port 02 PoE"
 
-    def test_freeform_description_used_whole(self):
-        """Freeform description (no dot) is used as-is."""
+    def test_freeform_hostname(self):
+        """Freeform hostname is used as-is."""
         ctrl = _make_controller()
         sw = ctrl.switches[0]
-        descs = {5: "rpi with rpiz and luna"}
-        ctrl.publish_discovery(sw, port_descs=descs)
+        hostnames = {5: "rpi with rpiz and luna"}
+        ctrl.publish_discovery(sw, port_hostnames=hostnames)
 
         calls = ctrl._client.publish.call_args_list
         toggle_05 = [c for c in calls if "port05_poe_toggle" in str(c[0][0])]
         payload = json.loads(toggle_05[0][0][1])
         assert payload["name"] == "Port 05 PoE (rpi with rpiz and luna)"
 
-    def test_none_port_descs_no_suffix(self):
-        """When port_descs is None, all names are plain."""
+    def test_none_hostnames_no_suffix(self):
+        """When port_hostnames is None, all names are plain."""
         ctrl = _make_controller()
         sw = ctrl.switches[0]
-        ctrl.publish_discovery(sw, port_descs=None)
+        ctrl.publish_discovery(sw, port_hostnames=None)
 
         calls = ctrl._client.publish.call_args_list
         toggle_01 = [c for c in calls if "port01_poe_toggle" in str(c[0][0])]
         payload = json.loads(toggle_01[0][0][1])
         assert payload["name"] == "Port 01 PoE"
+
+
+# ---------------------------------------------------------------------------
+# LLDP fetch + combined hostname tests
+# ---------------------------------------------------------------------------
+
+class TestFetchLldpNeighbors:
+    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
+    def test_parses_lldp_sysname(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=(
+                'iso.0.8802.1.1.2.1.4.1.1.9.0.1.1 = STRING: "rpi5-pmod.iot.welland.mithis.com"\n'
+                'iso.0.8802.1.1.2.1.4.1.1.9.0.2.1 = STRING: "rpi4-pmod"\n'
+            ),
+            stderr="",
+        )
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        result = fetch_lldp_neighbors(sw)
+        assert result[1] == "rpi5-pmod"  # domain stripped
+        assert result[2] == "rpi4-pmod"
+
+    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
+    def test_empty_on_failure(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Timeout")
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        result = fetch_lldp_neighbors(sw)
+        assert result == {}
+
+
+class TestFetchPortHostnames:
+    @patch("sensors2mqtt.collector.snmp_control.fetch_lldp_neighbors")
+    @patch("sensors2mqtt.collector.snmp_control.fetch_port_descriptions")
+    def test_ifalias_preferred_over_lldp(self, mock_desc, mock_lldp):
+        """ifAlias takes priority when both are available for same port."""
+        mock_desc.return_value = {1: "eth0.rpi5-pmod"}
+        mock_lldp.return_value = {1: "different-host", 2: "rpi4-pmod"}
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        result = fetch_port_hostnames(sw)
+        assert result[1] == "rpi5-pmod"  # from ifAlias, hostname extracted
+        assert result[2] == "rpi4-pmod"  # from LLDP (no ifAlias for port 2)
+
+    @patch("sensors2mqtt.collector.snmp_control.fetch_lldp_neighbors")
+    @patch("sensors2mqtt.collector.snmp_control.fetch_port_descriptions")
+    def test_lldp_fallback(self, mock_desc, mock_lldp):
+        """LLDP used when ifAlias is empty."""
+        mock_desc.return_value = {}
+        mock_lldp.return_value = {1: "rpi5-pmod", 5: "rpi4-usbdev"}
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        result = fetch_port_hostnames(sw)
+        assert result == {1: "rpi5-pmod", 5: "rpi4-usbdev"}
