@@ -12,6 +12,8 @@ from sensors2mqtt.collector.snmp_control import (
     POE_DETECT_OID,
     PoeController,
     PortControlState,
+    extract_hostname,
+    fetch_port_descriptions,
 )
 
 
@@ -563,3 +565,138 @@ class TestPowerCycle:
         ctrl._port_states[sw.node_id][1].busy = True
         ctrl._handle_cycle(sw, 1)
         mock_run.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Hostname extraction tests
+# ---------------------------------------------------------------------------
+
+class TestExtractHostname:
+    def test_interface_dot_hostname(self):
+        """Standard ifAlias: 'eth0.rpi5-pmod' → 'rpi5-pmod'."""
+        assert extract_hostname("eth0.rpi5-pmod") == "rpi5-pmod"
+
+    def test_switch_port_format(self):
+        """Netgear switch port: '1/0/2.sw-netgear-m4300-24x' → 'sw-netgear-m4300-24x'."""
+        assert extract_hostname("1/0/2.sw-netgear-m4300-24x") == "sw-netgear-m4300-24x"
+
+    def test_no_dot_freeform(self):
+        """Freeform description without dot returns whole string."""
+        assert extract_hostname("rpi with rpiz and luna") == "rpi with rpiz and luna"
+
+    def test_lan_prefix(self):
+        """LAN interface prefix: 'lan.openmesh-96-00' → 'openmesh-96-00'."""
+        assert extract_hostname("lan.openmesh-96-00") == "openmesh-96-00"
+
+    def test_empty_string(self):
+        assert extract_hostname("") == ""
+
+
+# ---------------------------------------------------------------------------
+# Port description fetch tests
+# ---------------------------------------------------------------------------
+
+class TestFetchPortDescriptions:
+    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
+    def test_parses_ifalias(self, mock_run):
+        """Parses standard snmpwalk ifAlias output."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=(
+                'IF-MIB::ifAlias.1 = STRING: "eth0.rpi5-pmod"\n'
+                'IF-MIB::ifAlias.2 = STRING: "eth0.rpi4-pmod"\n'
+                'IF-MIB::ifAlias.3 = STRING: ""\n'
+                'IF-MIB::ifAlias.5 = STRING: "rpi with rpiz and luna"\n'
+            ),
+            stderr="",
+        )
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        result = fetch_port_descriptions(sw)
+        assert result == {
+            1: "eth0.rpi5-pmod",
+            2: "eth0.rpi4-pmod",
+            5: "rpi with rpiz and luna",
+        }
+
+    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
+    def test_empty_on_failure(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Timeout")
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        result = fetch_port_descriptions(sw)
+        assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# Discovery with port descriptions tests
+# ---------------------------------------------------------------------------
+
+class TestDiscoveryWithHostnames:
+    def test_toggle_name_includes_hostname(self):
+        """Toggle entity name includes hostname when port has a description."""
+        ctrl = _make_controller()
+        sw = ctrl.switches[0]
+        descs = {1: "eth0.rpi5-pmod", 5: "rpi with rpiz and luna"}
+        ctrl.publish_discovery(sw, port_descs=descs)
+
+        calls = ctrl._client.publish.call_args_list
+        # Port 01 toggle
+        toggle_01 = [c for c in calls if "port01_poe_toggle" in str(c[0][0])]
+        payload = json.loads(toggle_01[0][0][1])
+        assert payload["name"] == "Port 01 PoE (rpi5-pmod)"
+
+    def test_cycle_name_includes_hostname(self):
+        ctrl = _make_controller()
+        sw = ctrl.switches[0]
+        descs = {1: "eth0.rpi5-pmod"}
+        ctrl.publish_discovery(sw, port_descs=descs)
+
+        calls = ctrl._client.publish.call_args_list
+        cycle_01 = [c for c in calls if "port01_poe_cycle" in str(c[0][0])]
+        payload = json.loads(cycle_01[0][0][1])
+        assert payload["name"] == "Port 01 PoE Cycle (rpi5-pmod)"
+
+    def test_force_name_includes_hostname(self):
+        ctrl = _make_controller()
+        sw = ctrl.switches[0]
+        descs = {1: "eth0.rpi5-pmod"}
+        ctrl.publish_discovery(sw, port_descs=descs)
+
+        calls = ctrl._client.publish.call_args_list
+        force_01 = [c for c in calls if "port01_poe_force" in str(c[0][0])]
+        payload = json.loads(force_01[0][0][1])
+        assert payload["name"] == "Port 01 PoE Force (rpi5-pmod)"
+
+    def test_no_description_no_suffix(self):
+        """Port without description keeps plain name."""
+        ctrl = _make_controller()
+        sw = ctrl.switches[0]
+        descs = {1: "eth0.rpi5-pmod"}  # Only port 1 has a desc
+        ctrl.publish_discovery(sw, port_descs=descs)
+
+        calls = ctrl._client.publish.call_args_list
+        toggle_02 = [c for c in calls if "port02_poe_toggle" in str(c[0][0])]
+        payload = json.loads(toggle_02[0][0][1])
+        assert payload["name"] == "Port 02 PoE"
+
+    def test_freeform_description_used_whole(self):
+        """Freeform description (no dot) is used as-is."""
+        ctrl = _make_controller()
+        sw = ctrl.switches[0]
+        descs = {5: "rpi with rpiz and luna"}
+        ctrl.publish_discovery(sw, port_descs=descs)
+
+        calls = ctrl._client.publish.call_args_list
+        toggle_05 = [c for c in calls if "port05_poe_toggle" in str(c[0][0])]
+        payload = json.loads(toggle_05[0][0][1])
+        assert payload["name"] == "Port 05 PoE (rpi with rpiz and luna)"
+
+    def test_none_port_descs_no_suffix(self):
+        """When port_descs is None, all names are plain."""
+        ctrl = _make_controller()
+        sw = ctrl.switches[0]
+        ctrl.publish_discovery(sw, port_descs=None)
+
+        calls = ctrl._client.publish.call_args_list
+        toggle_01 = [c for c in calls if "port01_poe_toggle" in str(c[0][0])]
+        payload = json.loads(toggle_01[0][0][1])
+        assert payload["name"] == "Port 01 PoE"

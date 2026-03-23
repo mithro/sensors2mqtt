@@ -36,6 +36,9 @@ from sensors2mqtt.discovery import ORIGIN, DeviceInfo, _device_dict
 
 log = logging.getLogger(__name__)
 
+# SNMP OIDs
+IF_ALIAS_OID = "1.3.6.1.2.1.31.1.1.1.18"          # ifAlias (port descriptions)
+
 # SNMP OIDs for PoE control
 POE_ADMIN_OID = "1.3.6.1.2.1.105.1.1.1.3.1"   # pethPsePortAdminEnable (R/W)
 POE_DETECT_OID = "1.3.6.1.2.1.105.1.1.1.6.1"   # pethPsePortDetectionStatus (R)
@@ -45,6 +48,50 @@ IF_OPER_OID = "1.3.6.1.2.1.2.2.1.8"            # ifOperStatus (R)
 POE_ADMIN_MAP = {1: "enabled", 2: "disabled"}
 POE_DETECT_MAP = {1: "unused", 2: "searching", 3: "delivering", 4: "fault"}
 OPER_MAP = {1: "up", 2: "down"}
+
+
+def fetch_port_descriptions(switch: SwitchConfig, timeout: int = 30) -> dict[int, str]:
+    """Fetch port descriptions (ifAlias) from switch via SNMP walk.
+
+    Returns {port_number: description_string}.
+    """
+    descriptions: dict[int, str] = {}
+    try:
+        result = subprocess.run(
+            ["snmpwalk", "-v2c", "-c", switch.community, switch.host, IF_ALIAS_OID],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        if result.returncode != 0:
+            log.warning("%s: ifAlias walk failed: %s", switch.name, result.stderr.strip())
+            return descriptions
+        for line in result.stdout.strip().splitlines():
+            m = re.match(r'.*\.(\d+)\s*=\s*STRING:\s*"(.+)"', line)
+            if not m:
+                continue
+            port = int(m.group(1))
+            alias = m.group(2).strip()
+            if alias:
+                descriptions[port] = alias
+    except subprocess.TimeoutExpired:
+        log.warning("%s: ifAlias walk timed out", switch.name)
+    except Exception as e:
+        log.warning("%s: ifAlias walk error: %s", switch.name, e)
+
+    if descriptions:
+        log.info("%s: fetched %d port descriptions", switch.name, len(descriptions))
+    return descriptions
+
+
+def extract_hostname(description: str) -> str:
+    """Extract the hostname portion from an ifAlias description.
+
+    Convention: "interface.hostname" (e.g. "eth0.rpi5-pmod" → "rpi5-pmod").
+    If no dot separator, returns the whole description.
+    """
+    dot = description.find(".")
+    if dot >= 0:
+        return description[dot + 1:]
+    return description
 
 
 @dataclass
@@ -411,8 +458,16 @@ class PoeController:
         elif action == "force/set":
             self._executor.submit(self._handle_force, switch, port, payload)
 
-    def publish_discovery(self, switch: SwitchConfig) -> int:
-        """Publish HA switch/button entity discovery for all PoE ports."""
+    def publish_discovery(
+        self,
+        switch: SwitchConfig,
+        port_descs: dict[int, str] | None = None,
+    ) -> int:
+        """Publish HA switch/button entity discovery for all PoE ports.
+
+        If port_descs is provided, entity names include the connected hostname
+        extracted from ifAlias (e.g. "Port 01 PoE (rpi5-pmod)").
+        """
         if not self._client:
             return 0
 
@@ -430,9 +485,15 @@ class PoeController:
             nn = str(port).zfill(2)
             port_avail = f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/available"
 
+            # Build host suffix from port description (ifAlias)
+            host_suffix = ""
+            if port_descs and port in port_descs:
+                hostname = extract_hostname(port_descs[port])
+                host_suffix = f" ({hostname})"
+
             # PoE Toggle (switch entity)
             toggle_config = {
-                "name": f"Port {nn} PoE",
+                "name": f"Port {nn} PoE{host_suffix}",
                 "unique_id": f"{switch.node_id}_port{nn}_poe_toggle",
                 "command_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/set",
                 "state_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/state",
@@ -459,7 +520,7 @@ class PoeController:
 
             # Power Cycle (button entity)
             cycle_config = {
-                "name": f"Port {nn} PoE Cycle",
+                "name": f"Port {nn} PoE Cycle{host_suffix}",
                 "unique_id": f"{switch.node_id}_port{nn}_poe_cycle",
                 "command_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/cycle",
                 "payload_press": "PRESS",
@@ -482,7 +543,7 @@ class PoeController:
 
             # Force Override (switch entity, hidden config category)
             force_config = {
-                "name": f"Port {nn} PoE Force",
+                "name": f"Port {nn} PoE Force{host_suffix}",
                 "unique_id": f"{switch.node_id}_port{nn}_poe_force",
                 "command_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/force/set",
                 "state_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/force/state",
@@ -577,10 +638,15 @@ class PoeController:
                     client.subscribe(f"sensors2mqtt/{sw.node_id}/port/+/poe/force/set")
                     log.info("%s: subscribed to command topics", sw.name)
 
+            # Fetch port descriptions for entity naming
+            port_descs: dict[str, dict[int, str]] = {}
+            for sw in self.switches:
+                port_descs[sw.node_id] = fetch_port_descriptions(sw)
+
             # Initial poll + discovery + state publish
             for sw in self.switches:
                 self.poll_all_ports(sw)
-                disc_count = self.publish_discovery(sw)
+                disc_count = self.publish_discovery(sw, port_descs.get(sw.node_id))
                 self.publish_all_poe_states(sw)
                 self.publish_availability(sw)
                 client.publish(f"sensors2mqtt/{sw.node_id}/status", "online", retain=True)
