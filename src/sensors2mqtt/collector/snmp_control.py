@@ -29,12 +29,14 @@ import paho.mqtt.client as mqtt
 from sensors2mqtt.base import MqttConfig
 from sensors2mqtt.collector.snmp import (
     SwitchConfig,
+    _build_port_device,
     fetch_bridge_mac,
+    fetch_lldp_chassis_macs,
     load_config,
     parse_lldp_walk,
     parse_snmpget_value,
 )
-from sensors2mqtt.discovery import ORIGIN, DeviceInfo, device_dict
+from sensors2mqtt.discovery import ORIGIN, device_dict
 
 log = logging.getLogger(__name__)
 
@@ -518,24 +520,16 @@ class PoeController:
         switch: SwitchConfig,
         port_hostnames: dict[int, str] | None = None,
         switch_mac: str | None = None,
+        chassis_macs: dict[int, str] | None = None,
     ) -> int:
         """Publish HA switch/button entity discovery for all PoE ports.
 
-        If port_hostnames is provided, entity names include the connected
-        hostname (e.g. "Port 01 PoE (rpi5-pmod)"). Values should be
-        pre-extracted hostnames, not raw ifAlias strings.
+        Each port gets a per-port sub-device (via_device → parent switch),
+        matching the sensor collector's per-port device scheme.
         """
         if not self._client:
             return 0
 
-        device = DeviceInfo(
-            node_id=switch.node_id,
-            name=switch.name,
-            manufacturer=switch.manufacturer,
-            model=switch.model,
-            connections=(("mac", switch_mac),) if switch_mac else None,
-        )
-        dev_dict = device_dict(device)
         avail_topic = f"sensors2mqtt/{switch.node_id}/status"
 
         count = 0
@@ -543,7 +537,13 @@ class PoeController:
             nn = str(port).zfill(2)
             port_avail = f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/available"
 
-            # Build host suffix from ifAlias/LLDP hostname
+            # Build per-port sub-device (same scheme as snmp.py)
+            port_device = _build_port_device(
+                switch, port, port_hostnames, chassis_macs,
+            )
+            port_dev_dict = device_dict(port_device)
+
+            # Build host suffix for entity names
             host_suffix = ""
             if port_hostnames and port in port_hostnames:
                 host_suffix = f" ({port_hostnames[port]})"
@@ -558,7 +558,7 @@ class PoeController:
                 "payload_off": "OFF",
                 "state_on": "ON",
                 "state_off": "OFF",
-                "device": dev_dict,
+                "device": port_dev_dict,
                 "availability": [
                     {"topic": avail_topic, "payload_available": "online",
                      "payload_not_available": "offline"},
@@ -581,7 +581,7 @@ class PoeController:
                 "unique_id": f"{switch.node_id}_port{nn}_poe_cycle",
                 "command_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/cycle",
                 "payload_press": "PRESS",
-                "device": dev_dict,
+                "device": port_dev_dict,
                 "availability": [
                     {"topic": avail_topic, "payload_available": "online",
                      "payload_not_available": "offline"},
@@ -608,7 +608,7 @@ class PoeController:
                 "payload_off": "OFF",
                 "state_on": "ON",
                 "state_off": "OFF",
-                "device": dev_dict,
+                "device": port_dev_dict,
                 "availability_topic": avail_topic,
                 "payload_available": "online",
                 "payload_not_available": "offline",
@@ -695,12 +695,14 @@ class PoeController:
                     client.subscribe(f"sensors2mqtt/{sw.node_id}/port/+/poe/force/set")
                     log.info("%s: subscribed to command topics", sw.name)
 
-            # Fetch port hostnames (ifAlias + LLDP) and switch MACs
+            # Fetch port hostnames, switch MACs, and LLDP chassis MACs
             port_hosts: dict[str, dict[int, str]] = {}
             switch_macs: dict[str, str | None] = {}
+            port_chassis_macs: dict[str, dict[int, str]] = {}
             for sw in self.switches:
                 port_hosts[sw.node_id] = fetch_port_hostnames(sw)
                 switch_macs[sw.node_id] = fetch_bridge_mac(sw)
+                port_chassis_macs[sw.node_id] = fetch_lldp_chassis_macs(sw)
 
             # Initial poll + discovery + state publish
             for sw in self.switches:
@@ -709,6 +711,7 @@ class PoeController:
                     sw,
                     port_hosts.get(sw.node_id),
                     switch_mac=switch_macs.get(sw.node_id),
+                    chassis_macs=port_chassis_macs.get(sw.node_id),
                 )
                 self.publish_all_poe_states(sw)
                 self.publish_availability(sw)

@@ -883,13 +883,39 @@ class SnmpCollector:
 # Main entry point
 # ---------------------------------------------------------------------------
 
+def _build_port_device(
+    switch: SwitchConfig,
+    port: int,
+    hostnames: dict[int, str] | None = None,
+    chassis_macs: dict[int, str] | None = None,
+) -> DeviceInfo:
+    """Build a per-port sub-device linked to the parent switch via via_device."""
+    nn = str(port).zfill(2)
+    hostname = hostnames.get(port) if hostnames else None
+    name = f"Port {nn} ({hostname})" if hostname else f"Port {nn}"
+    mac = chassis_macs.get(port) if chassis_macs else None
+    return DeviceInfo(
+        node_id=f"{switch.node_id}_port{nn}",
+        name=name,
+        manufacturer=switch.manufacturer,
+        model=switch.model,
+        connections=(("mac", mac),) if mac else None,
+        via_device=f"sensors2mqtt_{switch.node_id}",
+    )
+
+
 def _publish_port_discovery(
     client: mqtt.Client,
     switch: SwitchConfig,
     device: DeviceInfo,
     avail_topic: str,
+    hostnames: dict[int, str] | None = None,
+    chassis_macs: dict[int, str] | None = None,
 ) -> int:
-    """Publish per-port sensor discovery for all ports on a switch."""
+    """Publish per-port sensor discovery for all ports on a switch.
+
+    Each port gets its own sub-device (via_device → parent switch).
+    """
     import json as _json
 
     count = 0
@@ -897,6 +923,12 @@ def _publish_port_discovery(
         nn = str(port).zfill(2)
         port_state_topic = f"sensors2mqtt/{switch.node_id}/port/{nn}/state"
         port_prefix = f"port{nn}"
+
+        # Build per-port sub-device
+        port_device = _build_port_device(
+            switch, port, hostnames, chassis_macs,
+        )
+        port_dev_dict = device_dict(port_device)
 
         # Sensors for ALL ports
         port_sensors = [
@@ -935,7 +967,7 @@ def _publish_port_discovery(
                 "unique_id": unique_id,
                 "state_topic": port_state_topic,
                 "value_template": f"{{{{ value_json.{value_key} }}}}",
-                "device": device_dict(device),
+                "device": port_dev_dict,
                 "availability_topic": avail_topic,
                 "payload_available": "online",
                 "payload_not_available": "offline",
@@ -1033,10 +1065,29 @@ def main():
                             switch.name, hw_count,
                         )
 
-                    # Per-port discovery
+                    # Per-port discovery (each port is a sub-device)
                     if switch.port_count > 0:
+                        # Fetch LLDP chassis MACs and hostnames for
+                        # per-port device naming and connections
+                        chassis_macs = fetch_lldp_chassis_macs(switch)
+                        lldp_neighbors = collector.fetch_lldp_neighbors(switch)
+                        port_descs = collector.fetch_port_descriptions(switch)
+                        # Build hostnames: ifAlias > LLDP sysName
+                        hostnames: dict[int, str] = {}
+                        for p in set(port_descs.keys()) | set(lldp_neighbors.keys()):
+                            if p in port_descs:
+                                desc = port_descs[p]
+                                dot = desc.find(".")
+                                hostnames[p] = desc[dot + 1:] if dot >= 0 else desc
+                            elif p in lldp_neighbors:
+                                nb = lldp_neighbors[p]
+                                dot = nb.find(".")
+                                hostnames[p] = nb[dot + 1:] if dot >= 0 else nb
+
                         port_count = _publish_port_discovery(
                             client, switch, device, avail,
+                            hostnames=hostnames,
+                            chassis_macs=chassis_macs,
                         )
                         log.info(
                             "%s: published discovery for %d port sensors",
