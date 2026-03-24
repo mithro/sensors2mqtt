@@ -536,9 +536,7 @@ class PoeController:
             port_avail = f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/available"
 
             # Build per-port sub-device (same scheme as snmp.py)
-            port_device = _build_port_device(
-                switch, port, port_hostnames, chassis_macs,
-            )
+            port_device = _build_port_device(switch, port, chassis_macs)
             port_dev_dict = device_dict(port_device)
 
             # Build host suffix for entity names

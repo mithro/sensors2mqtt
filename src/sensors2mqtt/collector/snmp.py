@@ -866,17 +866,19 @@ class SnmpCollector:
 def _build_port_device(
     switch: SwitchConfig,
     port: int,
-    hostnames: dict[int, str] | None = None,
     chassis_macs: dict[int, str] | None = None,
 ) -> DeviceInfo:
-    """Build a per-port sub-device linked to the parent switch via via_device."""
+    """Build a per-port sub-device linked to the parent switch via via_device.
+
+    The device name is always "Port NN" — stable regardless of what's connected.
+    The connected hostname is available as the LLDP neighbor sensor value, not
+    in the device name. This keeps HA entity IDs stable when cables move.
+    """
     nn = str(port).zfill(2)
-    hostname = hostnames.get(port) if hostnames else None
-    name = f"Port {nn} ({hostname})" if hostname else f"Port {nn}"
     mac = chassis_macs.get(port) if chassis_macs else None
     return DeviceInfo(
         node_id=f"{switch.node_id}_port{nn}",
-        name=name,
+        name=f"Port {nn}",
         manufacturer=switch.manufacturer,
         model=switch.model,
         connections=(("mac", mac),) if mac else None,
@@ -888,7 +890,6 @@ def _publish_port_discovery(
     client: mqtt.Client,
     switch: SwitchConfig,
     avail_topic: str,
-    hostnames: dict[int, str] | None = None,
     chassis_macs: dict[int, str] | None = None,
 ) -> int:
     """Publish per-port sensor discovery for all ports on a switch.
@@ -904,9 +905,7 @@ def _publish_port_discovery(
         port_prefix = f"port{nn}"
 
         # Build per-port sub-device
-        port_device = _build_port_device(
-            switch, port, hostnames, chassis_macs,
-        )
+        port_device = _build_port_device(switch, port, chassis_macs)
         port_dev_dict = device_dict(port_device)
 
         # Sensors for ALL ports
@@ -923,7 +922,7 @@ def _publish_port_discovery(
         # PoE sensors (only for PoE-capable ports)
         if port <= switch.poe_port_count:
             port_sensors.extend([
-                ("poe_power", "sensor", f"Port {nn} PoE Power", "power", "mW",
+                ("poe_watts", "sensor", f"Port {nn} PoE Power", "power", "mW",
                  "measurement", None),
                 ("poe_admin", "sensor", f"Port {nn} PoE Admin", None, None, None, None),
                 ("poe_status", "sensor", f"Port {nn} PoE Status", None, None, None, None),
@@ -938,7 +937,7 @@ def _publish_port_discovery(
 
             # Determine entity_category: link and PoE power are primary, rest diagnostic
             entity_category = "diagnostic"
-            if value_key == "link":
+            if value_key in ("link", "poe_watts"):
                 entity_category = None  # primary
 
             config = {
@@ -1046,26 +1045,9 @@ def main():
 
                     # Per-port discovery (each port is a sub-device)
                     if switch.port_count > 0:
-                        # Fetch LLDP chassis MACs and hostnames for
-                        # per-port device naming and connections
                         chassis_macs = fetch_lldp_chassis_macs(switch)
-                        lldp_neighbors = collector.fetch_lldp_neighbors(switch)
-                        port_descs = collector.fetch_port_descriptions(switch)
-                        # Build hostnames: ifAlias > LLDP sysName
-                        hostnames: dict[int, str] = {}
-                        for p in set(port_descs.keys()) | set(lldp_neighbors.keys()):
-                            if p in port_descs:
-                                desc = port_descs[p]
-                                dot = desc.find(".")
-                                hostnames[p] = desc[dot + 1:] if dot >= 0 else desc
-                            elif p in lldp_neighbors:
-                                nb = lldp_neighbors[p]
-                                dot = nb.find(".")
-                                hostnames[p] = nb[dot + 1:] if dot >= 0 else nb
-
                         port_count = _publish_port_discovery(
                             client, switch, avail,
-                            hostnames=hostnames,
                             chassis_macs=chassis_macs,
                         )
                         log.info(
@@ -1086,7 +1068,7 @@ def main():
                     # Merge PoE power from hw_values if present
                     poe_key = f"port{nn}_poe_mw"
                     if hw_values and poe_key in hw_values:
-                        port_data["poe_power"] = hw_values[poe_key]
+                        port_data["poe_watts"] = hw_values[poe_key]
                     client.publish(port_topic, _json.dumps(port_data), retain=False)
 
                 client.publish(avail, "online", retain=True)
