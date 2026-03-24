@@ -411,32 +411,15 @@ class TestSnmpCollector:
         sensors = collector.get_sensors_for_switch(sw, values)
         assert len(sensors) == len(sw.sensors)
 
-    def test_get_sensors_for_switch_dynamic(self):
+    def test_get_sensors_excludes_walk_sensors(self):
+        """Walk sensors (PoE) are NOT in hardware discovery — they're on per-port sub-devices."""
         sw = _make_switch("test-gsm7252ps", "gsm7252ps")
         collector = self.make_collector(switches=[sw])
         values = {"port01_poe_mw": 3300, "port05_poe_mw": 5600}
         sensors = collector.get_sensors_for_switch(sw, values)
-        assert len(sensors) == 2
-        # No port descriptions cached → generic names
-        names = {s.name for s in sensors}
-        assert "Port 01 PoE Power" in names
-        assert "Port 05 PoE Power" in names
-
-    def test_get_sensors_consistent_poe_names(self):
-        """PoE sensor names use the template, not ifAlias (hostname is on the sub-device)."""
-        sw = _make_switch("test-gsm7252ps", "gsm7252ps")
-        collector = self.make_collector(switches=[sw])
-        collector._port_descriptions[sw.node_id] = {
-            1: "rpi5-pmod",
-            5: "rpi4-usbdev",
-        }
-        values = {"port01_poe_mw": 3300, "port05_poe_mw": 5600, "port10_poe_mw": 0}
-        sensors = collector.get_sensors_for_switch(sw, values)
-        names = {s.name for s in sensors}
-        # All ports get consistent "Port NN PoE Power" names
-        assert "Port 01 PoE Power" in names
-        assert "Port 05 PoE Power" in names
-        assert "Port 10 PoE Power" in names
+        # GSM7252PS has no static snmpget sensors, only walk sensors
+        # Walk sensors are excluded → empty list
+        assert len(sensors) == 0
 
     def test_topics(self):
         sw = _make_switch("test-m4300", "m4300")
