@@ -25,7 +25,14 @@ import requests
 import urllib3
 
 from sensors2mqtt.base import MqttConfig
-from sensors2mqtt.discovery import ORIGIN, DeviceInfo, SensorDef, publish_discovery, publish_state
+from sensors2mqtt.discovery import (
+    ORIGIN,
+    DeviceInfo,
+    SensorDef,
+    device_dict,
+    publish_discovery,
+    publish_state,
+)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -44,6 +51,34 @@ DEVICE = DeviceInfo(
     model="X11DSC+",
     configuration_url=None,  # set dynamically from BMC_HOST
 )
+
+
+def fetch_bmc_mac() -> str | None:
+    """Fetch BMC management MAC via ipmitool lan print.
+
+    Returns lowercase colon-separated MAC (e.g. "ac:1f:6b:aa:50:53"),
+    or None on failure.
+    """
+    try:
+        result = subprocess.run(
+            ["ipmitool", "lan", "print", "1"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            log.warning("BMC MAC fetch failed: %s", result.stderr.strip())
+            return None
+        for line in result.stdout.splitlines():
+            if "MAC Address" in line and "BMCMAC" not in line:
+                # Format: "MAC Address             : ac:1f:6b:aa:50:53"
+                parts = line.split(":", 1)
+                if len(parts) == 2:
+                    return parts[1].strip().lower()
+    except subprocess.TimeoutExpired:
+        log.warning("BMC MAC fetch timed out")
+    except Exception as e:
+        log.warning("BMC MAC fetch error: %s", e)
+    return None
+
 
 # IPMI sensor name -> (suffix, friendly_name, device_class, unit, icon)
 # These map `ipmitool sdr list full` output names to HA discovery suffixes.
@@ -323,11 +358,12 @@ def get_ipmi_sensors() -> list[SensorDef]:
 
 def publish_psu_discovery(
     client: mqtt.Client,
-    device_dict: dict,
+    device: DeviceInfo,
     psu_data: dict,
     avail_topic: str,
 ) -> int:
     """Publish HA discovery for per-PSU sensors. Returns count."""
+    dev_dict = device_dict(device)
     count = 0
     for psu in psu_data.get("psus", []):
         slot = psu["slot"]
@@ -343,7 +379,7 @@ def publish_psu_discovery(
                 "value_template": f"{{{{ value_json.{value_key} }}}}",
                 "unit_of_measurement": unit,
                 "state_class": state_class,
-                "device": device_dict,
+                "device": dev_dict,
                 "availability_topic": avail_topic,
                 "payload_available": "online",
                 "payload_not_available": "offline",
@@ -431,20 +467,17 @@ def main():
     client.connect(config.host, config.port, keepalive=120)
     client.loop_start()
 
+    bmc_mac = fetch_bmc_mac()
+    if bmc_mac:
+        log.info("BMC MAC: %s", bmc_mac)
     device_info = DeviceInfo(
         node_id=NODE_ID,
         name="big-storage",
         manufacturer="Supermicro",
         model="X11DSC+",
         configuration_url=f"https://{bmc_host}",
+        connections=(("mac", bmc_mac),) if bmc_mac else None,
     )
-    device_dict = {
-        "identifiers": [f"sensors2mqtt_{NODE_ID}"],
-        "name": device_info.name,
-        "manufacturer": device_info.manufacturer,
-        "model": device_info.model,
-        "configuration_url": device_info.configuration_url,
-    }
 
     try:
         while not stop_event.is_set():
@@ -469,7 +502,7 @@ def main():
                     if psu_data:
                         psu_count = publish_psu_discovery(
                             client,
-                            device_dict,
+                            device_info,
                             psu_data,
                             avail_topic,
                         )

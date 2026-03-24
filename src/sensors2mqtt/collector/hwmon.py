@@ -13,11 +13,29 @@ import json
 import logging
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 from sensors2mqtt.base import BasePublisher
 from sensors2mqtt.discovery import DeviceInfo, SensorDef
 
 log = logging.getLogger(__name__)
+
+
+def _read_management_mac() -> str | None:
+    """Read the local management interface MAC address.
+
+    Tries /sys/class/net/bmc/address first (Mellanox SN2410 management NIC),
+    falls back to /sys/class/net/eth0/address.
+    """
+    for iface in ("bmc", "eth0"):
+        path = Path(f"/sys/class/net/{iface}/address")
+        try:
+            mac = path.read_text().strip().lower()
+            if mac and mac != "00:00:00:00:00:00":
+                return mac
+        except OSError:
+            continue
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -119,12 +137,18 @@ class HwmonCollector(BasePublisher):
 
     @property
     def device(self) -> DeviceInfo:
-        return DeviceInfo(
-            node_id="sw_bb_25g",
-            name="sw-bb-25g",
-            manufacturer="Mellanox",
-            model="SN2410",
-        )
+        if not hasattr(self, "_cached_device"):
+            mac = _read_management_mac()
+            if mac:
+                log.info("Management MAC: %s", mac)
+            self._cached_device = DeviceInfo(
+                node_id="sw_bb_25g",
+                name="sw-bb-25g",
+                manufacturer="Mellanox",
+                model="SN2410",
+                connections=(("mac", mac),) if mac else None,
+            )
+        return self._cached_device
 
     @property
     def client_id(self) -> str:
