@@ -8,6 +8,8 @@ from sensors2mqtt.collector.snmp import (
     SnmpCollector,
     SwitchConfig,
     load_config,
+    parse_hex_mac,
+    parse_lldp_chassis_ids,
     parse_lldp_walk,
     parse_snmpget_value,
     parse_snmpwalk,
@@ -266,6 +268,39 @@ class TestLldpParsing:
         assert result[1] == "eth0"
         # Port 50 → 1/xg51 (S3300 uplink port)
         assert result[50] == "1/xg51"
+
+    def test_parse_hex_mac_valid(self):
+        assert parse_hex_mac("E0 91 F5 0C D5 C7") == "e0:91:f5:0c:d5:c7"
+
+    def test_parse_hex_mac_already_lower(self):
+        assert parse_hex_mac("ac 1f 6b aa 50 53") == "ac:1f:6b:aa:50:53"
+
+    def test_parse_hex_mac_not_6_bytes(self):
+        assert parse_hex_mac("E0 91 F5 0C D5") is None  # 5 bytes
+        assert parse_hex_mac("E0 91 F5 0C D5 C7 AB") is None  # 7 bytes
+
+    def test_parse_hex_mac_empty(self):
+        assert parse_hex_mac("") is None
+
+    def test_parse_lldp_chassis_ids(self):
+        output = (
+            "iso.0.8802.1.1.2.1.4.1.1.5.0.1.1 = Hex-STRING: E0 91 F5 0C D6 DB \n"
+            "iso.0.8802.1.1.2.1.4.1.1.5.0.2.1 = Hex-STRING: DC A6 32 12 34 56 \n"
+            "iso.0.8802.1.1.2.1.4.1.1.5.0.49.1 = Hex-STRING: 8C 3B AD 6B BB E3 \n"
+        )
+        result = parse_lldp_chassis_ids(output)
+        assert result[1] == "e0:91:f5:0c:d6:db"
+        assert result[2] == "dc:a6:32:12:34:56"
+        assert result[49] == "8c:3b:ad:6b:bb:e3"
+
+    def test_parse_lldp_chassis_ids_filters_non_mac(self):
+        output = (
+            "iso.0.8802.1.1.2.1.4.1.1.5.0.1.1 = Hex-STRING: E0 91 F5 0C D6 DB \n"
+            # 7 bytes = not a MAC, should be filtered out
+            "iso.0.8802.1.1.2.1.4.1.1.5.0.3.1 = Hex-STRING: 01 04 0A 01 05 0B 00 \n"
+        )
+        result = parse_lldp_chassis_ids(output)
+        assert result == {1: "e0:91:f5:0c:d6:db"}  # port 3 filtered out
 
     @patch("sensors2mqtt.collector.snmp.subprocess.run")
     def test_fetch_lldp_neighbors(self, mock_run):

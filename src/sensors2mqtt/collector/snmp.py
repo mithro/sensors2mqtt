@@ -434,6 +434,63 @@ def parse_lldp_walk(output: str, field_oid: str) -> dict[int, str]:
     return results
 
 
+def parse_lldp_chassis_ids(output: str) -> dict[int, str]:
+    """Parse LLDP chassis ID walk into {local_port: mac_address}.
+
+    LLDP chassis IDs are Hex-STRING MACs with three-part OID index:
+        iso.0.8802.1.1.2.1.4.1.1.5.0.1.1 = Hex-STRING: E0 91 F5 0C D6 DB
+
+    Only returns entries that parse as exactly 6-byte MACs (filters out
+    non-MAC chassis ID subtypes like networkAddress or interfaceName).
+    """
+    results: dict[int, str] = {}
+    for line in output.strip().splitlines():
+        if "Hex-STRING:" not in line:
+            continue
+        # OID suffix: ...5.{timeMark}.{localPortNum}.{remIndex} = Hex-STRING: ...
+        m = re.match(
+            r".*\.5\.(\d+)\.(\d+)\.(\d+)\s*=\s*Hex-STRING:\s*(.*)",
+            line,
+        )
+        if not m:
+            continue
+        port = int(m.group(2))  # localPortNum is the middle component
+        mac = parse_hex_mac(m.group(4))
+        if mac and port not in results:
+            results[port] = mac
+    return results
+
+
+LLDP_CHASSIS_OID = "1.0.8802.1.1.2.1.4.1.1.5"  # lldpRemChassisId
+
+
+def fetch_lldp_chassis_macs(switch: SwitchConfig, timeout: int = 30) -> dict[int, str]:
+    """Fetch LLDP neighbor chassis MACs per port.
+
+    Returns {port: "aa:bb:cc:dd:ee:ff"} for ports with LLDP neighbors
+    that report a MAC-type chassis ID.
+    """
+    try:
+        result = subprocess.run(
+            ["snmpwalk", "-v2c", "-c", switch.community, switch.host,
+             LLDP_CHASSIS_OID],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        if result.returncode != 0:
+            log.warning("%s: LLDP chassis MAC walk failed: %s",
+                        switch.name, result.stderr.strip())
+            return {}
+        macs = parse_lldp_chassis_ids(result.stdout)
+        if macs:
+            log.info("%s: fetched %d LLDP chassis MACs", switch.name, len(macs))
+        return macs
+    except subprocess.TimeoutExpired:
+        log.warning("%s: LLDP chassis MAC walk timed out", switch.name)
+    except Exception as e:
+        log.warning("%s: LLDP chassis MAC walk error: %s", switch.name, e)
+    return {}
+
+
 def snmpget_value(raw: str, value_type: str, scale: float) -> float | None:
     """Convert a raw SNMP value string to a numeric value."""
     if raw is None:
