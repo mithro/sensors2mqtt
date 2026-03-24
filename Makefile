@@ -54,9 +54,9 @@ install-snmp: _install-base ## Install SNMP collector + PoE control service (ten
 	$(call install-service,sensors2mqtt-snmp)
 	$(call install-service,sensors2mqtt-snmp-control)
 
-.PHONY: install-hwmon
-install-hwmon: _install-base ## Install hwmon collector (sw-bb-25g)
-	$(call install-service,sensors2mqtt-hwmon)
+.PHONY: install-local
+install-local: _install-base ## Install local sensor collector (RPi, Mellanox, etc.)
+	$(call install-service,sensors2mqtt-local)
 
 .PHONY: install-ipmi
 install-ipmi: _install-base ## Install IPMI sensor collector (big-storage)

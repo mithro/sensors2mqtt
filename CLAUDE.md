@@ -10,9 +10,13 @@ auto-discovery. Each collector runs as a systemd service on a target host.
 ```
 BasePublisher (base.py)          — MQTT connection, poll loop, signals, discovery
 ├── SnmpCollector (collector/snmp.py)      — multi-switch SNMP polling (ten64)
-├── HwmonCollector (collector/hwmon.py)    — local `sensors -j` (sw-bb-25g)
+├── LocalCollector (collector/local/base.py) — shared sysfs/proc/hwmon infrastructure
+│   ├── RpiCollector (collector/local/rpi.py)       — RPi sensors (all models)
+│   └── MellanoxCollector (collector/local/mellanox.py) — Mellanox SN2410 (sw-bb-25g)
 └── IpmiSensorCollector (collector/ipmi_sensors.py) — ipmitool + BMC web API (big-storage)
 ```
+
+`python -m sensors2mqtt.collector.local` auto-detects hardware and runs the right collector.
 
 ## MQTT Topic Convention
 
@@ -49,7 +53,8 @@ make lint     # ruff check
 
 ```bash
 uv run python -m sensors2mqtt.collector.snmp
-uv run python -m sensors2mqtt.collector.hwmon
+uv run python -m sensors2mqtt.collector.local          # auto-detects RPi/Mellanox
+uv run python -m sensors2mqtt.collector.local --hardware rpi   # force RPi mode
 uv run python -m sensors2mqtt.collector.ipmi_sensors
 ```
 
