@@ -5,7 +5,7 @@ Runs locally on big-storage. Combines two data sources:
 2. BMC web API — per-PSU PMBus data (AC/DC voltage, current, power, temps, fans)
 
 Usage:
-    python -m sensors2mqtt.collector.ipmi_sdr
+    python -m sensors2mqtt.collector.ipmi_sensors
 """
 
 from __future__ import annotations
@@ -424,7 +424,7 @@ def main():
         signal.signal(signal.SIGTERM, shutdown)
         signal.signal(signal.SIGINT, shutdown)
 
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="sensors2mqtt-ipmi-sdr")
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="sensors2mqtt-ipmi-sensors")
     client.username_pw_set(config.user, config.password)
 
     log.info("Connecting to MQTT %s:%d", config.host, config.port)

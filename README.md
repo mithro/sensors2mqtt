@@ -14,7 +14,7 @@ standalone systemd service on the target host.
 |-----------|------|-------------|---------|
 | **snmp** | ten64 (router) | SNMP polls to managed switches | M4300 fans/thermal/PSU, GSM7252PS PoE power |
 | **hwmon** | sw-bb-25g (Mellanox SN2410) | `sensors -j` (local hwmon) | ASIC temp, CPU temp, board temp, 8 fans |
-| **ipmi_sdr** | big-storage (Supermicro X11DSC+) | IPMI Sensor Data Records + BMC web API | CPU/board/VRM/DIMM temps, fans, voltages, per-PSU PMBus |
+| **ipmi_sensors** | big-storage (Supermicro X11DSC+) | IPMI Sensor Data Records + BMC web API | CPU/board/VRM/DIMM temps, fans, voltages, per-PSU PMBus |
 
 ## Install
 
@@ -40,7 +40,7 @@ uv run python -m sensors2mqtt.collector.snmp
 uv run python -m sensors2mqtt.collector.hwmon
 
 # IPMI sensor collector (on big-storage)
-uv run python -m sensors2mqtt.collector.ipmi_sdr
+uv run python -m sensors2mqtt.collector.ipmi_sensors
 ```
 
 ### Environment Variables

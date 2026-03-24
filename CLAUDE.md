@@ -11,7 +11,7 @@ auto-discovery. Each collector runs as a systemd service on a target host.
 BasePublisher (base.py)          — MQTT connection, poll loop, signals, discovery
 ├── SnmpCollector (collector/snmp.py)      — multi-switch SNMP polling (ten64)
 ├── HwmonCollector (collector/hwmon.py)    — local `sensors -j` (sw-bb-25g)
-└── IpmiSdrCollector (collector/ipmi_sdr.py) — ipmitool + BMC web API (big-storage)
+└── IpmiSensorCollector (collector/ipmi_sensors.py) — ipmitool + BMC web API (big-storage)
 ```
 
 ## MQTT Topic Convention
@@ -50,7 +50,7 @@ make lint     # ruff check
 ```bash
 uv run python -m sensors2mqtt.collector.snmp
 uv run python -m sensors2mqtt.collector.hwmon
-uv run python -m sensors2mqtt.collector.ipmi_sdr
+uv run python -m sensors2mqtt.collector.ipmi_sensors
 ```
 
 ## Key Design Decisions

@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/opt/sensors2mqtt/bin/python -m sensors2mqtt.collector.ipmi_sdr
+ExecStart=/opt/sensors2mqtt/bin/python -m sensors2mqtt.collector.ipmi_sensors
 Restart=always
 RestartSec=10
 Environment=MQTT_HOST=ha.welland.mithis.com

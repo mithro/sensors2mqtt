@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from sensors2mqtt.collector.ipmi_sdr import (
+from sensors2mqtt.collector.ipmi_sensors import (
     IPMI_SENSOR_MAP,
     PSU_SENSORS,
     parse_bmc_psu_xml,
@@ -101,7 +101,7 @@ class TestParseBmcPsuXml:
 
 
 class TestPollIpmiSensors:
-    @patch("sensors2mqtt.collector.ipmi_sdr.subprocess.run")
+    @patch("sensors2mqtt.collector.ipmi_sensors.subprocess.run")
     def test_success(self, mock_run):
         text = (FIXTURES / "ipmitool_sdr_big_storage.txt").read_text()
         mock_run.return_value = MagicMock(returncode=0, stdout=text, stderr="")
@@ -109,13 +109,13 @@ class TestPollIpmiSensors:
         assert values is not None
         assert "cpu1_temp" in values
 
-    @patch("sensors2mqtt.collector.ipmi_sdr.subprocess.run")
+    @patch("sensors2mqtt.collector.ipmi_sensors.subprocess.run")
     def test_failure(self, mock_run):
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Connection timed out")
         values = poll_ipmi_sensors("10.1.5.150", "ADMIN", "ADMIN")
         assert values is None
 
-    @patch("sensors2mqtt.collector.ipmi_sdr.subprocess.run")
+    @patch("sensors2mqtt.collector.ipmi_sensors.subprocess.run")
     def test_timeout(self, mock_run):
         import subprocess
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="ipmitool", timeout=30)

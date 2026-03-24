@@ -34,7 +34,7 @@ Control service live test (--once mode):
 ## Cross-cutting — COMPLETE
 
 - [x] Add --once flag to SNMP collector — f2f161e
-- [x] Add --once flag to hwmon and ipmi_sdr collectors — e769f3a
+- [x] Add --once flag to hwmon and ipmi_sensors collectors — e769f3a
 - [x] Per-switch live verification (M4300, GSM7252PS-S2, S3300-1) — verified
 - [x] HA entity verification — switch/button/force discovery retained, correct payloads
 - [x] MQTT retention verification — state topics NOT retained, discovery IS retained

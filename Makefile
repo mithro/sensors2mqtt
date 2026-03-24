@@ -60,7 +60,7 @@ install-hwmon: _install-base ## Install hwmon collector (sw-bb-25g)
 
 .PHONY: install-ipmi
 install-ipmi: _install-base ## Install IPMI sensor collector (big-storage)
-	$(call install-service,sensors2mqtt-ipmi-sdr)
+	$(call install-service,sensors2mqtt-ipmi-sensors)
 
 .PHONY: clean
 clean: ## Remove virtualenv
