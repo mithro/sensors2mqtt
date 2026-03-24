@@ -33,7 +33,7 @@ from sensors2mqtt.collector.snmp import (
     parse_lldp_walk,
     parse_snmpget_value,
 )
-from sensors2mqtt.discovery import ORIGIN, DeviceInfo, _device_dict
+from sensors2mqtt.discovery import ORIGIN, DeviceInfo, device_dict
 
 log = logging.getLogger(__name__)
 
@@ -532,7 +532,7 @@ class PoeController:
             manufacturer=switch.manufacturer,
             model=switch.model,
         )
-        device_dict = _device_dict(device)
+        dev_dict = device_dict(device)
         avail_topic = f"sensors2mqtt/{switch.node_id}/status"
 
         count = 0
@@ -555,7 +555,7 @@ class PoeController:
                 "payload_off": "OFF",
                 "state_on": "ON",
                 "state_off": "OFF",
-                "device": device_dict,
+                "device": dev_dict,
                 "availability": [
                     {"topic": avail_topic, "payload_available": "online",
                      "payload_not_available": "offline"},
@@ -578,7 +578,7 @@ class PoeController:
                 "unique_id": f"{switch.node_id}_port{nn}_poe_cycle",
                 "command_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/cycle",
                 "payload_press": "PRESS",
-                "device": device_dict,
+                "device": dev_dict,
                 "availability": [
                     {"topic": avail_topic, "payload_available": "online",
                      "payload_not_available": "offline"},
@@ -605,7 +605,7 @@ class PoeController:
                 "payload_off": "OFF",
                 "state_on": "ON",
                 "state_off": "OFF",
-                "device": device_dict,
+                "device": dev_dict,
                 "availability_topic": avail_topic,
                 "payload_available": "online",
                 "payload_not_available": "offline",

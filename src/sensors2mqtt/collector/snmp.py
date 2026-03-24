@@ -29,7 +29,7 @@ from sensors2mqtt.discovery import (
     ORIGIN,
     DeviceInfo,
     SensorDef,
-    _device_dict,
+    device_dict,
     publish_discovery,
     publish_state,
 )
@@ -824,7 +824,7 @@ def _publish_port_discovery(
                 "unique_id": unique_id,
                 "state_topic": port_state_topic,
                 "value_template": f"{{{{ value_json.{value_key} }}}}",
-                "device": _device_dict(device),
+                "device": device_dict(device),
                 "availability_topic": avail_topic,
                 "payload_available": "online",
                 "payload_not_available": "offline",

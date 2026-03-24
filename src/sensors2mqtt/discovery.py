@@ -55,6 +55,9 @@ class DeviceInfo:
         manufacturer: Device manufacturer.
         model: Device model.
         configuration_url: Optional URL to device management interface.
+        connections: HA device connections for cross-integration linking.
+            Typically MAC addresses: (("mac", "aa:bb:cc:dd:ee:ff"),).
+        via_device: Identifier of a parent device (e.g. switch that a port belongs to).
     """
 
     node_id: str
@@ -62,6 +65,8 @@ class DeviceInfo:
     manufacturer: str
     model: str
     configuration_url: str | None = None
+    connections: tuple[tuple[str, str], ...] | None = None
+    via_device: str | None = None
 
 
 def discovery_payload(
@@ -77,7 +82,7 @@ def discovery_payload(
         "state_topic": state_topic,
         "value_template": f"{{{{ value_json.{sensor.suffix} }}}}",
         "unit_of_measurement": sensor.unit,
-        "device": _device_dict(device),
+        "device": device_dict(device),
         "availability_topic": avail_topic,
         "payload_available": "online",
         "payload_not_available": "offline",
@@ -114,9 +119,9 @@ def publish_state(client: mqtt.Client, state_topic: str, values: dict) -> None:
     client.publish(state_topic, json.dumps(values), retain=False)
 
 
-def _device_dict(device: DeviceInfo) -> dict:
+def device_dict(device: DeviceInfo) -> dict:
     """Build HA device registry dict."""
-    d = {
+    d: dict = {
         "identifiers": [f"sensors2mqtt_{device.node_id}"],
         "name": device.name,
         "manufacturer": device.manufacturer,
@@ -124,4 +129,8 @@ def _device_dict(device: DeviceInfo) -> dict:
     }
     if device.configuration_url:
         d["configuration_url"] = device.configuration_url
+    if device.connections:
+        d["connections"] = [list(c) for c in device.connections]
+    if device.via_device:
+        d["via_device"] = device.via_device
     return d
