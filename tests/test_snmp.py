@@ -170,9 +170,10 @@ class TestConfigLoading:
     def test_load_real_config(self):
         """Load the actual snmp.toml shipped with the repo."""
         switches = load_config(CONFIG_FILE)
-        assert len(switches) == 3
+        assert len(switches) == 4
         names = {s.name for s in switches}
         assert "sw-netgear-m4300-24x" in names
+        assert "sw-netgear-gsm7252ps-s1" in names
         assert "sw-netgear-gsm7252ps-s2" in names
         assert "sw-netgear-s3300-1" in names
 
@@ -421,10 +422,10 @@ class TestSnmpCollector:
         assert "Port 01 PoE Power" in names
         assert "Port 05 PoE Power" in names
 
-    def test_get_sensors_with_port_descriptions(self):
+    def test_get_sensors_consistent_poe_names(self):
+        """PoE sensor names use the template, not ifAlias (hostname is on the sub-device)."""
         sw = _make_switch("test-gsm7252ps", "gsm7252ps")
         collector = self.make_collector(switches=[sw])
-        # Simulate cached port descriptions (as if fetched from SNMP ifAlias)
         collector._port_descriptions[sw.node_id] = {
             1: "rpi5-pmod",
             5: "rpi4-usbdev",
@@ -432,10 +433,9 @@ class TestSnmpCollector:
         values = {"port01_poe_mw": 3300, "port05_poe_mw": 5600, "port10_poe_mw": 0}
         sensors = collector.get_sensors_for_switch(sw, values)
         names = {s.name for s in sensors}
-        # Ports with descriptions get friendly names
-        assert "(Port 01 PoE) rpi5-pmod" in names
-        assert "(Port 05 PoE) rpi4-usbdev" in names
-        # Port without description gets generic name
+        # All ports get consistent "Port NN PoE Power" names
+        assert "Port 01 PoE Power" in names
+        assert "Port 05 PoE Power" in names
         assert "Port 10 PoE Power" in names
 
     def test_topics(self):
