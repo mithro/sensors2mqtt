@@ -14,6 +14,12 @@ model = "m4300"
 host = "sw-netgear-m4300-24x.welland.mithis.com"
 community = "public"
 
+[switches.sw-netgear-gsm7252ps-s1]
+model = "gsm7252ps"
+host = "sw-netgear-gsm7252ps-s1.welland.mithis.com"
+community = "public"
+write_community = "private"
+
 [switches.sw-netgear-gsm7252ps-s2]
 model = "gsm7252ps"
 host = "sw-netgear-gsm7252ps-s2.welland.mithis.com"
