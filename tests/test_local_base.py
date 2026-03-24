@@ -8,7 +8,6 @@ import pytest
 from sensors2mqtt.base import MqttConfig
 from sensors2mqtt.collector.local.base import (
     LocalCollector,
-    LocalSensor,
     ProcSource,
     SysfsSource,
 )

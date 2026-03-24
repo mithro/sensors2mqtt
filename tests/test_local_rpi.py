@@ -3,10 +3,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from sensors2mqtt.base import MqttConfig
-from sensors2mqtt.collector.local.rpi import RpiCollector, THROTTLE_BITS
+from sensors2mqtt.collector.local.rpi import THROTTLE_BITS, RpiCollector
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
