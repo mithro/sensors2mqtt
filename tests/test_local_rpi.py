@@ -49,7 +49,7 @@ class TestDeviceInfo:
     @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="rpi5-pmod")
     def test_mac_from_eth0(self, _mock):
         c = make_rpi("rpi5_sysfs")
-        assert c.device.connections == (("mac", "dc:a6:32:ab:cd:ef"),)
+        assert c.device.connections == (("mac", "88:a2:9e:80:87:9b"),)
 
     @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="rpiz-serial")
     def test_mac_fallback_to_wlan0(self, _mock):
@@ -65,29 +65,35 @@ class TestDeviceInfo:
 
 class TestRpi5Sensors:
     def test_has_rp1_adc_voltages(self):
+        """Real RPi 5 has 4 RP1 ADC voltage channels (in1-in4)."""
         c = make_rpi("rpi5_sysfs")
         suffixes = [ls.sensor.suffix for ls in c._sensors_list]
-        assert "vddio_voltage" in suffixes
-        assert "vdda_voltage" in suffixes
-        assert "vddd_voltage" in suffixes
+        assert "rp1_v1" in suffixes
+        assert "rp1_v2" in suffixes
+        assert "rp1_v3" in suffixes
+        assert "rp1_v4" in suffixes
 
     def test_has_rp1_temp(self):
         c = make_rpi("rpi5_sysfs")
         suffixes = [ls.sensor.suffix for ls in c._sensors_list]
         assert "rp1_temp" in suffixes
 
-    def test_has_supply_voltage(self):
+    def test_has_supply_undervoltage_alarm(self):
+        """Real RPi 5 has in0_lcrit_alarm (not in0_input)."""
         c = make_rpi("rpi5_sysfs")
         suffixes = [ls.sensor.suffix for ls in c._sensors_list]
-        assert "supply_voltage" in suffixes
+        assert "supply_undervoltage" in suffixes
+        # No supply_voltage on RPi 5 (only alarm flag)
+        assert "supply_voltage" not in suffixes
 
-    def test_has_fan_rpm(self):
+    def test_no_fan_without_active_cooler(self):
+        """Real rpi5-pmod has no active cooler attached."""
         c = make_rpi("rpi5_sysfs")
         suffixes = [ls.sensor.suffix for ls in c._sensors_list]
-        assert "fan_rpm" in suffixes
+        assert "fan_rpm" not in suffixes
 
     def test_sensor_count(self):
-        """RPi 5: 8 common + 4 rp1_adc + 1 rpi_volt + 1 fan = 14 (no vcgencmd)."""
+        """RPi 5 (real): 8 common + 4 rp1_adc voltages + 1 rp1_temp + 1 undervoltage = 14."""
         c = make_rpi("rpi5_sysfs", vcgencmd_available=False)
         assert len(c._sensors_list) == 14
 
@@ -304,15 +310,14 @@ class TestPollIntegration:
         c = make_rpi("rpi5_sysfs")
         values = c.poll()
         assert values is not None
-        # RP1 ADC
-        assert "vddio_voltage" in values
-        assert "vdda_voltage" in values
-        assert "vddd_voltage" in values
+        # RP1 ADC (4 voltage channels + temp)
+        assert "rp1_v1" in values
+        assert "rp1_v2" in values
+        assert "rp1_v3" in values
+        assert "rp1_v4" in values
         assert "rp1_temp" in values
-        # rpi_volt
-        assert "supply_voltage" in values
-        # Fan
-        assert "fan_rpm" in values
+        # rpi_volt (undervoltage alarm, not voltage reading)
+        assert "supply_undervoltage" in values
         # Common
         assert "cpu_temp" in values
         assert "uptime" in values
@@ -320,16 +325,13 @@ class TestPollIntegration:
     def test_rpi5_voltage_values_reasonable(self):
         c = make_rpi("rpi5_sysfs")
         values = c.poll()
-        # VDDIO ~3.3V, VDDA ~3.3V, VDDD ~1.1V, supply ~5V
-        assert 2.5 < values["vddio_voltage"] < 4.0
-        assert 2.5 < values["vdda_voltage"] < 4.0
-        assert 0.8 < values["vddd_voltage"] < 1.5
-        assert 4.0 < values["supply_voltage"] < 6.0
-
-    def test_rpi5_fan_rpm_reasonable(self):
-        c = make_rpi("rpi5_sysfs")
-        values = c.poll()
-        assert 0 <= values["fan_rpm"] <= 10000
+        # Real RPi 5 PMIC rail voltages: ~1-3V range
+        assert 0.5 < values["rp1_v1"] < 4.0  # 1.480V
+        assert 0.5 < values["rp1_v2"] < 4.0  # 2.564V
+        assert 0.5 < values["rp1_v3"] < 4.0  # 1.405V
+        assert 0.5 < values["rp1_v4"] < 4.0  # 1.415V
+        # Undervoltage alarm: 0 = OK
+        assert values["supply_undervoltage"] == 0.0
 
     def test_rpizero_poll_minimal(self):
         c = make_rpi("rpizero_sysfs")
@@ -338,5 +340,5 @@ class TestPollIntegration:
         assert "cpu_temp" in values
         assert "uptime" in values
         # No RPi-specific hw sensors
-        assert "vddio_voltage" not in values
+        assert "rp1_v1" not in values
         assert "fan_rpm" not in values

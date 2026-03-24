@@ -110,7 +110,7 @@ class TestReadSysfs:
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
         source = SysfsSource(path="sys/class/thermal/thermal_zone0/temp", scale=0.001, precision=1)
         val = c._read_sysfs(source)
-        assert val == 48.3  # 48312 * 0.001 = 48.312, rounded to 48.3
+        assert val == 51.2  # 51250 * 0.001 = 51.25, rounded to 51.2
 
     def test_read_missing_file_returns_none(self):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
@@ -128,31 +128,31 @@ class TestReadProc:
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
         source = ProcSource(path="proc/uptime", key="_uptime_")
         val = c._read_proc_key(source)
-        assert val == 86412
+        assert val == 208553  # from real rpi5-pmod capture
 
     def test_read_meminfo_total(self):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
         source = ProcSource(path="proc/meminfo", key="MemTotal", scale=1 / 1024, precision=0)
         val = c._read_proc_key(source)
-        assert val == round(8108596 / 1024)
+        assert val == round(8256448 / 1024)  # real rpi5-pmod: 8256448 kB
 
     def test_read_meminfo_available(self):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
         source = ProcSource(path="proc/meminfo", key="MemAvailable", scale=1 / 1024, precision=0)
         val = c._read_proc_key(source)
-        assert val == round(6892340 / 1024)
+        assert val == round(7957760 / 1024)  # real rpi5-pmod: 7957760 kB
 
     def test_read_loadavg(self):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
         source = ProcSource(path="proc/loadavg", key="_loadavg_0_", precision=2)
         val = c._read_proc_key(source)
-        assert val == 0.15
+        assert val == 0.0  # idle RPi at capture time
 
     def test_read_loadavg_5m(self):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
         source = ProcSource(path="proc/loadavg", key="_loadavg_1_", precision=2)
         val = c._read_proc_key(source)
-        assert val == 0.10
+        assert val == 0.0
 
     def test_read_computed_returns_none(self):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
@@ -168,7 +168,7 @@ class TestReadProc:
 class TestReadMac:
     def test_reads_eth0_mac(self):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
-        assert c._read_mac() == "dc:a6:32:ab:cd:ef"
+        assert c._read_mac() == "88:a2:9e:80:87:9b"
 
     def test_rpizero_no_eth0_returns_none(self):
         """RPi Zero only has wlan0, base class only checks eth0."""
@@ -208,7 +208,7 @@ class TestDeviceIdentification:
     @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="test-host")
     def test_mac_in_connections(self, _mock):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
-        assert c.device.connections == (("mac", "dc:a6:32:ab:cd:ef"),)
+        assert c.device.connections == (("mac", "88:a2:9e:80:87:9b"),)
 
 
 # ---------------------------------------------------------------------------
@@ -261,12 +261,12 @@ class TestPoll:
         values = c.poll()
         assert values is not None
         assert "cpu_temp" in values
-        assert values["cpu_temp"] == 48.3
+        assert values["cpu_temp"] == 51.2  # 51250 millidegrees
 
     def test_poll_returns_uptime(self):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
         values = c.poll()
-        assert values["uptime"] == 86412
+        assert values["uptime"] == 208553
 
     def test_poll_computes_mem_used_percent(self):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
@@ -280,9 +280,9 @@ class TestPoll:
     def test_poll_returns_load_averages(self):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
         values = c.poll()
-        assert values["load_1m"] == 0.15
-        assert values["load_5m"] == 0.10
-        assert values["load_15m"] == 0.05
+        assert values["load_1m"] == 0.0
+        assert values["load_5m"] == 0.0
+        assert values["load_15m"] == 0.0
 
     def test_rpizero_poll_works_with_512mb(self):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpizero_sysfs"))

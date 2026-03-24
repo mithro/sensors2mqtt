@@ -86,44 +86,73 @@ class RpiCollector(LocalCollector):
         self._probe_vcgencmd()
 
     def _probe_rp1_adc(self) -> None:
-        """Probe RP1 ADC (RPi 5 only): 3 voltages + RP1 temperature."""
+        """Probe RP1 ADC (RPi 5 only): voltage channels + RP1 temperature.
+
+        The RP1 ADC exposes up to 4 voltage input channels (in1-in4) measuring
+        various PMIC power rails. The exact rail names are undocumented by the
+        RPi Foundation, so we use generic labels.
+        """
         hwmon_dir = self._find_hwmon_by_name("rp1_adc")
         if hwmon_dir is None:
             return
 
-        sensors = [
-            ("in1_input", "vddio_voltage", "VDDIO Voltage", "V", "voltage", 0.001),
-            ("in2_input", "vdda_voltage", "VDDA Voltage", "V", "voltage", 0.001),
-            ("in3_input", "vddd_voltage", "VDDD Voltage", "V", "voltage", 0.001),
-            ("temp1_input", "rp1_temp", "RP1 Temperature", "°C", "temperature", 0.001),
-        ]
-        for filename, suffix, name, unit, dev_class, scale in sensors:
-            filepath = hwmon_dir / filename
-            if filepath.exists():
-                rel_path = str(filepath.relative_to(self._sysfs_root))
-                self._sensors_list.append(
-                    LocalSensor(
-                        sensor=SensorDef(
-                            suffix=suffix,
-                            name=name,
-                            unit=unit,
-                            device_class=dev_class,
-                            state_class="measurement",
-                        ),
-                        source=SysfsSource(path=rel_path, scale=scale, precision=3),
-                    )
+        # Dynamically discover inN_input files
+        for voltage_file in sorted(hwmon_dir.glob("in*_input")):
+            # Extract channel number from filename (in1_input → 1)
+            m = re.match(r"in(\d+)_input", voltage_file.name)
+            if not m:
+                continue
+            channel = m.group(1)
+            suffix = f"rp1_v{channel}"
+            display_name = f"RP1 Voltage {channel}"
+
+            rel_path = str(voltage_file.relative_to(self._sysfs_root))
+            self._sensors_list.append(
+                LocalSensor(
+                    sensor=SensorDef(
+                        suffix=suffix,
+                        name=display_name,
+                        unit="V",
+                        device_class="voltage",
+                        state_class="measurement",
+                    ),
+                    source=SysfsSource(path=rel_path, scale=0.001, precision=3),
                 )
-                log.debug("Probed RP1 ADC: %s (%s)", suffix, rel_path)
+            )
+            log.debug("Probed RP1 ADC: %s (%s)", suffix, rel_path)
+
+        # RP1 temperature
+        temp_file = hwmon_dir / "temp1_input"
+        if temp_file.exists():
+            rel_path = str(temp_file.relative_to(self._sysfs_root))
+            self._sensors_list.append(
+                LocalSensor(
+                    sensor=SensorDef(
+                        suffix="rp1_temp",
+                        name="RP1 Temperature",
+                        unit="°C",
+                        device_class="temperature",
+                        state_class="measurement",
+                    ),
+                    source=SysfsSource(path=rel_path, scale=0.001, precision=1),
+                )
+            )
+            log.debug("Probed RP1 ADC: rp1_temp (%s)", rel_path)
 
     def _probe_rpi_volt(self) -> None:
-        """Probe rpi_volt supply voltage (RPi 3/4)."""
+        """Probe rpi_volt supply voltage.
+
+        On RPi 3/4: ``in0_input`` provides the supply voltage in millivolts.
+        On RPi 5: only ``in0_lcrit_alarm`` exists (undervoltage alarm flag, 0=OK 1=alarm).
+        """
         hwmon_dir = self._find_hwmon_by_name("rpi_volt")
         if hwmon_dir is None:
             return
 
-        filepath = hwmon_dir / "in0_input"
-        if filepath.exists():
-            rel_path = str(filepath.relative_to(self._sysfs_root))
+        # Try in0_input first (RPi 3/4 — actual voltage reading)
+        input_file = hwmon_dir / "in0_input"
+        if input_file.exists():
+            rel_path = str(input_file.relative_to(self._sysfs_root))
             self._sensors_list.append(
                 LocalSensor(
                     sensor=SensorDef(
@@ -137,6 +166,23 @@ class RpiCollector(LocalCollector):
                 )
             )
             log.debug("Probed rpi_volt: supply_voltage")
+
+        # Check for undervoltage alarm (RPi 5 and some RPi 4 kernels)
+        alarm_file = hwmon_dir / "in0_lcrit_alarm"
+        if alarm_file.exists():
+            rel_path = str(alarm_file.relative_to(self._sysfs_root))
+            self._sensors_list.append(
+                LocalSensor(
+                    sensor=SensorDef(
+                        suffix="supply_undervoltage",
+                        name="Supply Undervoltage",
+                        unit="",
+                        entity_category="diagnostic",
+                    ),
+                    source=SysfsSource(path=rel_path, precision=0),
+                )
+            )
+            log.debug("Probed rpi_volt: supply_undervoltage alarm")
 
     def _probe_cooling_fan(self) -> None:
         """Probe RPi 5 active cooler fan speed."""
