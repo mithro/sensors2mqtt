@@ -29,6 +29,7 @@ import paho.mqtt.client as mqtt
 from sensors2mqtt.base import MqttConfig
 from sensors2mqtt.collector.snmp import (
     SwitchConfig,
+    fetch_bridge_mac,
     load_config,
     parse_lldp_walk,
     parse_snmpget_value,
@@ -516,6 +517,7 @@ class PoeController:
         self,
         switch: SwitchConfig,
         port_hostnames: dict[int, str] | None = None,
+        switch_mac: str | None = None,
     ) -> int:
         """Publish HA switch/button entity discovery for all PoE ports.
 
@@ -531,6 +533,7 @@ class PoeController:
             name=switch.name,
             manufacturer=switch.manufacturer,
             model=switch.model,
+            connections=(("mac", switch_mac),) if switch_mac else None,
         )
         dev_dict = device_dict(device)
         avail_topic = f"sensors2mqtt/{switch.node_id}/status"
@@ -692,15 +695,21 @@ class PoeController:
                     client.subscribe(f"sensors2mqtt/{sw.node_id}/port/+/poe/force/set")
                     log.info("%s: subscribed to command topics", sw.name)
 
-            # Fetch port hostnames (ifAlias + LLDP) for entity naming
+            # Fetch port hostnames (ifAlias + LLDP) and switch MACs
             port_hosts: dict[str, dict[int, str]] = {}
+            switch_macs: dict[str, str | None] = {}
             for sw in self.switches:
                 port_hosts[sw.node_id] = fetch_port_hostnames(sw)
+                switch_macs[sw.node_id] = fetch_bridge_mac(sw)
 
             # Initial poll + discovery + state publish
             for sw in self.switches:
                 self.poll_all_ports(sw)
-                disc_count = self.publish_discovery(sw, port_hosts.get(sw.node_id))
+                disc_count = self.publish_discovery(
+                    sw,
+                    port_hosts.get(sw.node_id),
+                    switch_mac=switch_macs.get(sw.node_id),
+                )
                 self.publish_all_poe_states(sw)
                 self.publish_availability(sw)
                 client.publish(f"sensors2mqtt/{sw.node_id}/status", "online", retain=True)

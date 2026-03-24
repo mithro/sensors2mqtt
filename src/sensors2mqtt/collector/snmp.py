@@ -327,6 +327,50 @@ def _make_switch(name: str, model_name: str) -> SwitchConfig:
 # SNMP parsing helpers
 # ---------------------------------------------------------------------------
 
+
+def parse_hex_mac(hex_str: str) -> str | None:
+    """Parse a Hex-STRING MAC address to colon-separated lowercase format.
+
+    Input:  "E0 91 F5 0C D5 C7"  (space-separated hex bytes)
+    Output: "e0:91:f5:0c:d5:c7"
+    Returns None if not exactly 6 bytes (filters non-MAC LLDP chassis IDs).
+    """
+    parts = hex_str.strip().split()
+    if len(parts) != 6:
+        return None
+    return ":".join(p.lower() for p in parts)
+
+
+BRIDGE_MAC_OID = "1.3.6.1.2.1.17.1.1.0"  # dot1dBaseBridgeAddress
+
+
+def fetch_bridge_mac(switch: SwitchConfig, timeout: int = 10) -> str | None:
+    """Fetch switch base MAC address via SNMP dot1dBaseBridgeAddress.
+
+    Returns lowercase colon-separated MAC (e.g. "e0:91:f5:0c:d5:c7"),
+    or None on failure.
+    """
+    try:
+        result = subprocess.run(
+            ["snmpget", "-v2c", "-c", switch.community, switch.host, BRIDGE_MAC_OID],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        if result.returncode != 0:
+            log.warning("%s: bridge MAC fetch failed: %s", switch.name, result.stderr.strip())
+            return None
+        # Output: iso.3.6.1.2.1.17.1.1.0 = Hex-STRING: E0 91 F5 0C D5 C7
+        m = re.search(r"Hex-STRING:\s*(.+)", result.stdout)
+        if not m:
+            return None
+        return parse_hex_mac(m.group(1))
+    except subprocess.TimeoutExpired:
+        log.warning("%s: bridge MAC fetch timed out", switch.name)
+        return None
+    except Exception as e:
+        log.warning("%s: bridge MAC fetch error: %s", switch.name, e)
+        return None
+
+
 def parse_snmpget_value(output: str) -> str | None:
     """Extract the value from a single snmpget output line.
 
@@ -433,6 +477,8 @@ class SnmpCollector:
         self._vlan_names: dict[str, dict[int, str]] = {}
         # Cache of LLDP neighbors: {node_id: {port: "sysname / portdesc"}}
         self._lldp_neighbors: dict[str, dict[int, str]] = {}
+        # Cache of switch management MACs: {node_id: "aa:bb:cc:dd:ee:ff"}
+        self._switch_macs: dict[str, str] = {}
 
     def poll_switch(self, switch: SwitchConfig) -> dict | None:
         """Poll all sensors on a single switch. Returns {suffix: value} or None."""
@@ -754,11 +800,19 @@ class SnmpCollector:
         return sensors
 
     def get_device_info(self, switch: SwitchConfig) -> DeviceInfo:
+        # Lazy-fetch and cache switch management MAC
+        if switch.node_id not in self._switch_macs:
+            mac = fetch_bridge_mac(switch, timeout=self._timeout)
+            if mac:
+                self._switch_macs[switch.node_id] = mac
+                log.info("%s: bridge MAC %s", switch.name, mac)
+        mac = self._switch_macs.get(switch.node_id)
         return DeviceInfo(
             node_id=switch.node_id,
             name=switch.name,
             manufacturer=switch.manufacturer,
             model=switch.model,
+            connections=(("mac", mac),) if mac else None,
         )
 
     def state_topic(self, switch: SwitchConfig) -> str:
