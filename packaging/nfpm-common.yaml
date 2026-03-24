@@ -1,0 +1,23 @@
+name: sensors2mqtt-common
+arch: all
+platform: linux
+version: "${VERSION}"
+maintainer: "Tim Ansell <tim@mithis.com>"
+description: "sensors2mqtt common library — hardware sensor data to Home Assistant via MQTT"
+vendor: "sensors2mqtt"
+homepage: "https://github.com/mithro/sensors2mqtt"
+license: "Apache-2.0"
+
+depends:
+  - python3 (>= 3.11)
+  - python3-venv
+
+contents:
+  - src: ../dist/sensors2mqtt-${VERSION}-py3-none-any.whl
+    dst: /usr/share/sensors2mqtt/sensors2mqtt-${VERSION}-py3-none-any.whl
+  - src: wheels/paho_mqtt-2.1.0-py3-none-any.whl
+    dst: /usr/share/sensors2mqtt/wheels/paho_mqtt-2.1.0-py3-none-any.whl
+
+scripts:
+  postinstall: scripts/common-postinst.sh
+  preremove: scripts/common-prerm.sh

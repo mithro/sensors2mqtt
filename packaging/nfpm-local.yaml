@@ -1,0 +1,20 @@
+name: sensors2mqtt-local
+arch: all
+platform: linux
+version: "${VERSION}"
+maintainer: "Tim Ansell <tim@mithis.com>"
+description: "sensors2mqtt local sensor collector — auto-detects RPi, Mellanox, etc."
+vendor: "sensors2mqtt"
+homepage: "https://github.com/mithro/sensors2mqtt"
+license: "Apache-2.0"
+
+depends:
+  - sensors2mqtt-common (= ${VERSION})
+
+contents:
+  - src: ../deploy/sensors2mqtt-local.service
+    dst: /lib/systemd/system/sensors2mqtt-local.service
+
+scripts:
+  postinstall: scripts/local-postinst.sh
+  preremove: scripts/local-prerm.sh

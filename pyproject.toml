@@ -10,8 +10,10 @@ requires-python = ">=3.11"
 license = "Apache-2.0"
 dependencies = [
     "paho-mqtt>=2",
-    "requests",
 ]
+
+[project.optional-dependencies]
+ipmi = ["requests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sensors2mqtt"]
