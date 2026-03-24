@@ -30,7 +30,6 @@ from sensors2mqtt.base import MqttConfig
 from sensors2mqtt.collector.snmp import (
     SwitchConfig,
     _build_port_device,
-    fetch_bridge_mac,
     fetch_lldp_chassis_macs,
     load_config,
     parse_lldp_walk,
@@ -519,7 +518,6 @@ class PoeController:
         self,
         switch: SwitchConfig,
         port_hostnames: dict[int, str] | None = None,
-        switch_mac: str | None = None,
         chassis_macs: dict[int, str] | None = None,
     ) -> int:
         """Publish HA switch/button entity discovery for all PoE ports.
@@ -695,13 +693,11 @@ class PoeController:
                     client.subscribe(f"sensors2mqtt/{sw.node_id}/port/+/poe/force/set")
                     log.info("%s: subscribed to command topics", sw.name)
 
-            # Fetch port hostnames, switch MACs, and LLDP chassis MACs
+            # Fetch port hostnames and LLDP chassis MACs
             port_hosts: dict[str, dict[int, str]] = {}
-            switch_macs: dict[str, str | None] = {}
             port_chassis_macs: dict[str, dict[int, str]] = {}
             for sw in self.switches:
                 port_hosts[sw.node_id] = fetch_port_hostnames(sw)
-                switch_macs[sw.node_id] = fetch_bridge_mac(sw)
                 port_chassis_macs[sw.node_id] = fetch_lldp_chassis_macs(sw)
 
             # Initial poll + discovery + state publish
@@ -710,7 +706,6 @@ class PoeController:
                 disc_count = self.publish_discovery(
                     sw,
                     port_hosts.get(sw.node_id),
-                    switch_mac=switch_macs.get(sw.node_id),
                     chassis_macs=port_chassis_macs.get(sw.node_id),
                 )
                 self.publish_all_poe_states(sw)

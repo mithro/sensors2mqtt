@@ -907,7 +907,6 @@ def _build_port_device(
 def _publish_port_discovery(
     client: mqtt.Client,
     switch: SwitchConfig,
-    device: DeviceInfo,
     avail_topic: str,
     hostnames: dict[int, str] | None = None,
     chassis_macs: dict[int, str] | None = None,
@@ -1085,7 +1084,7 @@ def main():
                                 hostnames[p] = nb[dot + 1:] if dot >= 0 else nb
 
                         port_count = _publish_port_discovery(
-                            client, switch, device, avail,
+                            client, switch, avail,
                             hostnames=hostnames,
                             chassis_macs=chassis_macs,
                         )

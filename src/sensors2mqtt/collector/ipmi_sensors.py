@@ -404,7 +404,7 @@ def publish_psu_discovery(
                 "unique_id": object_id,
                 "state_topic": psu_state_topic,
                 "value_template": f"{{{{ value_json.{extra_key} }}}}",
-                "device": device_dict,
+                "device": dev_dict,
                 "icon": extra_icon,
                 "availability_topic": avail_topic,
                 "payload_available": "online",

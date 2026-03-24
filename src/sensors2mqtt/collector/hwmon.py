@@ -129,6 +129,10 @@ HWMON_SENSORS: list[HwmonSensor] = [
 
 
 class HwmonCollector(BasePublisher):
+
+    def __init__(self, config=None):
+        super().__init__(config)
+        self._cached_device: DeviceInfo | None = None
     """Polls local hwmon via `sensors -j` and publishes to MQTT."""
 
     @property
@@ -137,7 +141,7 @@ class HwmonCollector(BasePublisher):
 
     @property
     def device(self) -> DeviceInfo:
-        if not hasattr(self, "_cached_device"):
+        if self._cached_device is None:
             mac = _read_management_mac()
             if mac:
                 log.info("Management MAC: %s", mac)
