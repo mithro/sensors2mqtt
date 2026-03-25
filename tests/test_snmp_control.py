@@ -360,7 +360,7 @@ class TestDiscovery:
 
         payload = json.loads(toggle_calls[0][0][1])
         assert payload["name"] == "PoE"
-        assert payload["unique_id"] == f"{sw.node_id}_pt01_poe_toggle"
+        assert payload["unique_id"] == f"{sw.node_id}_01_poe_toggle"
         assert payload["command_topic"].endswith("/poe/set")
         assert payload["state_topic"].endswith("/poe/state")
         assert payload["payload_on"] == "ON"

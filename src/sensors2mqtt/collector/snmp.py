@@ -941,7 +941,7 @@ def _publish_port_discovery(
         for value_key, platform, name, dev_class, unit, state_class, icon in port_sensors:
             # Topic suffix uses "port01_link" format for MQTT paths
             topic_suffix = f"{port_prefix}_{value_key}"
-            unique_id = f"{switch.node_id}_pt{nn}_{value_key}"
+            unique_id = f"{switch.node_id}_{nn}_{value_key}"
             config_topic = (
                 f"{DISCOVERY_PREFIX}/sensor/{switch.node_id}/{topic_suffix}/config"
             )

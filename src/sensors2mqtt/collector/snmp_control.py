@@ -526,7 +526,7 @@ class PoeController:
             # Short names — device name already identifies the port.
             toggle_config = {
                 "name": "PoE",
-                "unique_id": f"{switch.node_id}_pt{nn}_poe_toggle",
+                "unique_id": f"{switch.node_id}_{nn}_poe_toggle",
                 "command_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/set",
                 "state_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/state",
                 "payload_on": "ON",
@@ -553,7 +553,7 @@ class PoeController:
             # Power Cycle (button entity)
             cycle_config = {
                 "name": "PoE Cycle",
-                "unique_id": f"{switch.node_id}_pt{nn}_poe_cycle",
+                "unique_id": f"{switch.node_id}_{nn}_poe_cycle",
                 "command_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/cycle",
                 "payload_press": "PRESS",
                 "device": port_dev_dict,
@@ -576,7 +576,7 @@ class PoeController:
             # Force Override (switch entity, hidden config category)
             force_config = {
                 "name": "PoE Force",
-                "unique_id": f"{switch.node_id}_pt{nn}_poe_force",
+                "unique_id": f"{switch.node_id}_{nn}_poe_force",
                 "command_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/force/set",
                 "state_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/force/state",
                 "payload_on": "ON",
