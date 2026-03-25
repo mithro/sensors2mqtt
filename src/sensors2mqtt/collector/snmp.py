@@ -929,10 +929,13 @@ def _publish_port_discovery(
             ])
 
         for value_key, platform, name, dev_class, unit, state_class, icon in port_sensors:
-            suffix = f"{port_prefix}_{value_key}"
-            unique_id = f"{switch.node_id}_{suffix}"
+            # Topic suffix uses "port01_link" format for MQTT paths
+            topic_suffix = f"{port_prefix}_{value_key}"
+            # Unique ID uses "p01_link" format — distinct from the old
+            # "port01_link" IDs which HA mapped to hostname-polluted entity_ids
+            unique_id = f"{switch.node_id}_p{nn}_{value_key}"
             config_topic = (
-                f"{DISCOVERY_PREFIX}/sensor/{switch.node_id}/{suffix}/config"
+                f"{DISCOVERY_PREFIX}/sensor/{switch.node_id}/{topic_suffix}/config"
             )
 
             # Determine entity_category: link and PoE power are primary, rest diagnostic
