@@ -358,11 +358,18 @@ def fetch_bridge_mac(switch: SwitchConfig, timeout: int = 10) -> str | None:
         if result.returncode != 0:
             log.warning("%s: bridge MAC fetch failed: %s", switch.name, result.stderr.strip())
             return None
-        # Output: iso.3.6.1.2.1.17.1.1.0 = Hex-STRING: E0 91 F5 0C D5 C7
+        # Two possible formats:
+        # Hex-STRING: E0 91 F5 0C D5 C7  (GSM7252PS, S3300)
+        # STRING: "8C:3B:AD:6B:BB:E0"    (M4300)
         m = re.search(r"Hex-STRING:\s*(.+)", result.stdout)
-        if not m:
-            return None
-        return parse_hex_mac(m.group(1))
+        if m:
+            return parse_hex_mac(m.group(1))
+        m = re.search(r'STRING:\s*"?([0-9A-Fa-f:]+)"?', result.stdout)
+        if m:
+            return m.group(1).lower()
+        log.debug("%s: unrecognised bridge MAC format: %s",
+                  switch.name, result.stdout.strip())
+        return None
     except subprocess.TimeoutExpired:
         log.warning("%s: bridge MAC fetch timed out", switch.name)
         return None
@@ -870,15 +877,15 @@ def _build_port_device(
 ) -> DeviceInfo:
     """Build a per-port sub-device linked to the parent switch via via_device.
 
-    The device name is always "Port NN" — stable regardless of what's connected.
-    The connected hostname is available as the LLDP neighbor sensor value, not
-    in the device name. This keeps HA entity IDs stable when cables move.
+    The device name includes the switch name for globally unique HA entity IDs
+    (e.g. "sw-netgear-gsm7252ps-s1 Port 01"). It does NOT include the connected
+    hostname — that changes when cables move and would make entity IDs unstable.
     """
     nn = str(port).zfill(2)
     mac = chassis_macs.get(port) if chassis_macs else None
     return DeviceInfo(
         node_id=f"{switch.node_id}_port{nn}",
-        name=f"Port {nn}",
+        name=f"{switch.name} Port {nn}",
         manufacturer=switch.manufacturer,
         model=switch.model,
         connections=(("mac", mac),) if mac else None,
@@ -931,9 +938,7 @@ def _publish_port_discovery(
         for value_key, platform, name, dev_class, unit, state_class, icon in port_sensors:
             # Topic suffix uses "port01_link" format for MQTT paths
             topic_suffix = f"{port_prefix}_{value_key}"
-            # Unique ID uses "p01_link" format — distinct from the old
-            # "port01_link" IDs which HA mapped to hostname-polluted entity_ids
-            unique_id = f"{switch.node_id}_p{nn}_{value_key}"
+            unique_id = f"{switch.node_id}_pt{nn}_{value_key}"
             config_topic = (
                 f"{DISCOVERY_PREFIX}/sensor/{switch.node_id}/{topic_suffix}/config"
             )
