@@ -916,23 +916,26 @@ def _publish_port_discovery(
         port_dev_dict = device_dict(port_device)
 
         # Sensors for ALL ports
+        # Names are short — the device name already identifies the port.
+        # HA entity_id = {device_name}_{sensor_name}, so "Link" on device
+        # "sw-netgear-m4300-24x Port 20" → sensor.sw_netgear_m4300_24x_port_20_link
         port_sensors = [
-            ("link", "sensor", f"Port {nn} Link", None, None, None, "mdi:ethernet"),
-            ("speed_mbps", "sensor", f"Port {nn} Speed", "data_rate", "Mbit/s",
+            ("link", "sensor", "Link", None, None, None, "mdi:ethernet"),
+            ("speed_mbps", "sensor", "Speed", "data_rate", "Mbit/s",
              "measurement", None),
-            ("vlan_pvid", "sensor", f"Port {nn} VLAN", None, None, "measurement", None),
-            ("vlan_name", "sensor", f"Port {nn} VLAN Name", None, None, None, None),
-            ("description", "sensor", f"Port {nn} Description", None, None, None, None),
-            ("lldp_neighbor", "sensor", f"Port {nn} LLDP", None, None, None, None),
+            ("vlan_pvid", "sensor", "VLAN", None, None, "measurement", None),
+            ("vlan_name", "sensor", "VLAN Name", None, None, None, None),
+            ("description", "sensor", "Description", None, None, None, None),
+            ("lldp_neighbor", "sensor", "LLDP", None, None, None, None),
         ]
 
         # PoE sensors (only for PoE-capable ports)
         if port <= switch.poe_port_count:
             port_sensors.extend([
-                ("poe_watts", "sensor", f"Port {nn} PoE Power", "power", "mW",
+                ("poe_watts", "sensor", "PoE Power", "power", "mW",
                  "measurement", None),
-                ("poe_admin", "sensor", f"Port {nn} PoE Admin", None, None, None, None),
-                ("poe_status", "sensor", f"Port {nn} PoE Status", None, None, None, None),
+                ("poe_admin", "sensor", "PoE Admin", None, None, None, None),
+                ("poe_status", "sensor", "PoE Status", None, None, None, None),
             ])
 
         for value_key, platform, name, dev_class, unit, state_class, icon in port_sensors:

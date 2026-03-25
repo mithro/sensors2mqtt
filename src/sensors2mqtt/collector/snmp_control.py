@@ -132,23 +132,6 @@ def fetch_lldp_neighbors(switch: SwitchConfig, timeout: int = 30) -> dict[int, s
     return sys_names
 
 
-def fetch_port_hostnames(switch: SwitchConfig) -> dict[int, str]:
-    """Fetch the best hostname for each port using ifAlias + LLDP fallback.
-
-    Priority: ifAlias (admin-configured) > LLDP sysName (auto-discovered).
-    Returns {port_number: hostname} for ports that have identification.
-    """
-    descs = fetch_port_descriptions(switch)
-    lldp = fetch_lldp_neighbors(switch)
-
-    hostnames: dict[int, str] = {}
-    for port in set(descs.keys()) | set(lldp.keys()):
-        if port in descs:
-            hostnames[port] = extract_hostname(descs[port])
-        elif port in lldp:
-            hostnames[port] = lldp[port]
-    return hostnames
-
 
 @dataclass
 class PortControlState:
@@ -517,7 +500,6 @@ class PoeController:
     def publish_discovery(
         self,
         switch: SwitchConfig,
-        port_hostnames: dict[int, str] | None = None,
         chassis_macs: dict[int, str] | None = None,
     ) -> int:
         """Publish HA switch/button entity discovery for all PoE ports.
@@ -540,14 +522,11 @@ class PoeController:
             port_dev_dict = device_dict(port_device)
 
             # Build host suffix for entity names
-            host_suffix = ""
-            if port_hostnames and port in port_hostnames:
-                host_suffix = f" ({port_hostnames[port]})"
-
             # PoE Toggle (switch entity)
+            # Short names — device name already identifies the port.
             toggle_config = {
-                "name": f"Port {nn} PoE{host_suffix}",
-                "unique_id": f"{switch.node_id}_p{nn}_poe_toggle",
+                "name": "PoE",
+                "unique_id": f"{switch.node_id}_pt{nn}_poe_toggle",
                 "command_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/set",
                 "state_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/state",
                 "payload_on": "ON",
@@ -573,8 +552,8 @@ class PoeController:
 
             # Power Cycle (button entity)
             cycle_config = {
-                "name": f"Port {nn} PoE Cycle{host_suffix}",
-                "unique_id": f"{switch.node_id}_p{nn}_poe_cycle",
+                "name": "PoE Cycle",
+                "unique_id": f"{switch.node_id}_pt{nn}_poe_cycle",
                 "command_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/cycle",
                 "payload_press": "PRESS",
                 "device": port_dev_dict,
@@ -596,8 +575,8 @@ class PoeController:
 
             # Force Override (switch entity, hidden config category)
             force_config = {
-                "name": f"Port {nn} PoE Force{host_suffix}",
-                "unique_id": f"{switch.node_id}_p{nn}_poe_force",
+                "name": "PoE Force",
+                "unique_id": f"{switch.node_id}_pt{nn}_poe_force",
                 "command_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/force/set",
                 "state_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/force/state",
                 "payload_on": "ON",
@@ -691,11 +670,9 @@ class PoeController:
                     client.subscribe(f"sensors2mqtt/{sw.node_id}/port/+/poe/force/set")
                     log.info("%s: subscribed to command topics", sw.name)
 
-            # Fetch port hostnames and LLDP chassis MACs
-            port_hosts: dict[str, dict[int, str]] = {}
+            # Fetch LLDP chassis MACs for per-port device connections
             port_chassis_macs: dict[str, dict[int, str]] = {}
             for sw in self.switches:
-                port_hosts[sw.node_id] = fetch_port_hostnames(sw)
                 port_chassis_macs[sw.node_id] = fetch_lldp_chassis_macs(sw)
 
             # Initial poll + discovery + state publish
@@ -703,7 +680,6 @@ class PoeController:
                 self.poll_all_ports(sw)
                 disc_count = self.publish_discovery(
                     sw,
-                    port_hosts.get(sw.node_id),
                     chassis_macs=port_chassis_macs.get(sw.node_id),
                 )
                 self.publish_all_poe_states(sw)
