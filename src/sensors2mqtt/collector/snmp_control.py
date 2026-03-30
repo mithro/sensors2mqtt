@@ -304,7 +304,7 @@ class PoeController:
         state = self._port_states[switch.node_id][port]
         payload = "ON" if state.poe_is_on else "OFF"
         topic = f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/state"
-        self._client.publish(topic, payload, retain=False)
+        self._client.publish(topic, payload, retain=True)
 
     def publish_all_poe_states(self, switch: SwitchConfig) -> None:
         """Publish PoE state for all ports on a switch."""

@@ -162,5 +162,5 @@ class TestPublishState:
         assert mock_mqtt_client.publish.call_count == 1
         call = mock_mqtt_client.published[0]
         assert call["topic"] == "sensors2mqtt/test_device/state"
-        assert call["retain"] is False
+        assert call["retain"] is True
         assert json.loads(call["payload"]) == {"cpu_temp": 42.5, "fan1_rpm": 3200}
