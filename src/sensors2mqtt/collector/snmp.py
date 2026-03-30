@@ -18,6 +18,7 @@ import logging
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -527,6 +528,9 @@ class SnmpCollector:
     run loop.
     """
 
+    _CACHE_TTL = 300  # Re-fetch ifAlias, VLAN names, LLDP every 5 min
+    _ERROR_RETRY = 60  # Retry failed fetches after 1 min
+
     def __init__(
         self,
         config: MqttConfig | None = None,
@@ -543,6 +547,8 @@ class SnmpCollector:
         self._lldp_neighbors: dict[str, dict[int, str]] = {}
         # Cache of switch management MACs: {node_id: "aa:bb:cc:dd:ee:ff"}
         self._switch_macs: dict[str, str] = {}
+        # Cache expiry times: {"node_id:type": monotonic_expires_at}
+        self._cache_times: dict[str, float] = {}
 
     def poll_switch(self, switch: SwitchConfig) -> dict | None:
         """Poll all sensors on a single switch. Returns {suffix: value} or None."""
@@ -684,14 +690,17 @@ class SnmpCollector:
         "{interface}.{hostname}" (e.g. "eth0.rpi5-pmod") — we strip the
         interface prefix to get just the device name.
 
-        Results are cached per switch (port descriptions don't change between polls).
+        Results are cached per switch with a TTL to pick up changes.
         """
-        if switch.node_id in self._port_descriptions:
+        cache_key = f"{switch.node_id}:descriptions"
+        if switch.node_id in self._port_descriptions and \
+                time.monotonic() < self._cache_times.get(cache_key, 0):
             return self._port_descriptions[switch.node_id]
 
         # ifAlias OID: 1.3.6.1.2.1.31.1.1.1.18
         IF_ALIAS_OID = "1.3.6.1.2.1.31.1.1.1.18"
         descriptions: dict[int, str] = {}
+        success = False
 
         try:
             result = subprocess.run(
@@ -701,6 +710,7 @@ class SnmpCollector:
             if result.returncode != 0:
                 log.warning("%s: ifAlias walk failed: %s", switch.name, result.stderr.strip())
             else:
+                success = True
                 for line in result.stdout.strip().splitlines():
                     m = re.match(r'.*\.(\d+)\s*=\s*STRING:\s*"(.+)"', line)
                     if not m:
@@ -715,22 +725,29 @@ class SnmpCollector:
         except Exception as e:
             log.warning("%s: ifAlias walk error: %s", switch.name, e)
 
-        self._port_descriptions[switch.node_id] = descriptions
-        if descriptions:
-            log.info("%s: fetched %d port descriptions", switch.name, len(descriptions))
-        return descriptions
+        if success:
+            self._port_descriptions[switch.node_id] = descriptions
+            self._cache_times[cache_key] = time.monotonic() + self._CACHE_TTL
+            if descriptions:
+                log.info("%s: fetched %d port descriptions", switch.name, len(descriptions))
+        elif switch.node_id in self._port_descriptions:
+            self._cache_times[cache_key] = time.monotonic() + self._ERROR_RETRY
+        return self._port_descriptions.get(switch.node_id, {})
 
     def fetch_vlan_names(self, switch: SwitchConfig) -> dict[int, str]:
         """Fetch VLAN ID to name mapping from switch via SNMP dot1qVlanStaticName.
 
-        Returns {vlan_id: name}. Results are cached per switch.
+        Returns {vlan_id: name}. Results are cached per switch with a TTL.
         """
-        if switch.node_id in self._vlan_names:
+        cache_key = f"{switch.node_id}:vlan_names"
+        if switch.node_id in self._vlan_names and \
+                time.monotonic() < self._cache_times.get(cache_key, 0):
             return self._vlan_names[switch.node_id]
 
         # dot1qVlanStaticName: 1.3.6.1.2.1.17.7.1.4.3.1.1.{vlan_id}
         VLAN_NAME_OID = "1.3.6.1.2.1.17.7.1.4.3.1.1"
         names: dict[int, str] = {}
+        success = False
 
         try:
             result = subprocess.run(
@@ -742,6 +759,7 @@ class SnmpCollector:
                     "%s: VLAN name walk failed: %s", switch.name, result.stderr.strip(),
                 )
             else:
+                success = True
                 for index, val in parse_snmpwalk(result.stdout):
                     if val:
                         names[index] = val
@@ -750,27 +768,34 @@ class SnmpCollector:
         except Exception as e:
             log.warning("%s: VLAN name walk error: %s", switch.name, e)
 
-        self._vlan_names[switch.node_id] = names
-        if names:
-            log.info("%s: fetched %d VLAN names", switch.name, len(names))
-        return names
+        if success:
+            self._vlan_names[switch.node_id] = names
+            self._cache_times[cache_key] = time.monotonic() + self._CACHE_TTL
+            if names:
+                log.info("%s: fetched %d VLAN names", switch.name, len(names))
+        elif switch.node_id in self._vlan_names:
+            self._cache_times[cache_key] = time.monotonic() + self._ERROR_RETRY
+        return self._vlan_names.get(switch.node_id, {})
 
     def fetch_lldp_neighbors(self, switch: SwitchConfig) -> dict[int, str]:
         """Fetch LLDP neighbor info from switch.
 
         Returns {port: "sys_name / port_desc"} for ports with LLDP neighbors.
-        Results are cached per switch.
+        Results are cached per switch with a TTL.
 
         LLDP remote table base OID: 1.0.8802.1.1.2.1.4.1.1
         Field .9 = lldpRemSysName, field .8 = lldpRemPortDesc.
         Index: {timeMark}.{localPortNum}.{remIndex} (three-part).
         """
-        if switch.node_id in self._lldp_neighbors:
+        cache_key = f"{switch.node_id}:lldp"
+        if switch.node_id in self._lldp_neighbors and \
+                time.monotonic() < self._cache_times.get(cache_key, 0):
             return self._lldp_neighbors[switch.node_id]
 
         LLDP_REM = "1.0.8802.1.1.2.1.4.1.1"
         sys_names: dict[int, str] = {}
         port_descs: dict[int, str] = {}
+        success = True
 
         for field_oid, target in [("9", sys_names), ("8", port_descs)]:
             try:
@@ -786,12 +811,15 @@ class SnmpCollector:
                         "%s: LLDP .%s walk failed: %s",
                         switch.name, field_oid, result.stderr.strip(),
                     )
+                    success = False
                 else:
                     target.update(parse_lldp_walk(result.stdout, field_oid))
             except subprocess.TimeoutExpired:
                 log.warning("%s: LLDP .%s walk timed out", switch.name, field_oid)
+                success = False
             except Exception as e:
                 log.warning("%s: LLDP .%s walk error: %s", switch.name, field_oid, e)
+                success = False
 
         # Strip "<site>.mithis.com" domain suffix from sysName values
         for port in sys_names:
@@ -815,10 +843,14 @@ class SnmpCollector:
             elif sn:
                 neighbors[port] = sn
 
-        self._lldp_neighbors[switch.node_id] = neighbors
-        if neighbors:
-            log.info("%s: fetched %d LLDP neighbors", switch.name, len(neighbors))
-        return neighbors
+        if success:
+            self._lldp_neighbors[switch.node_id] = neighbors
+            self._cache_times[cache_key] = time.monotonic() + self._CACHE_TTL
+            if neighbors:
+                log.info("%s: fetched %d LLDP neighbors", switch.name, len(neighbors))
+        elif switch.node_id in self._lldp_neighbors:
+            self._cache_times[cache_key] = time.monotonic() + self._ERROR_RETRY
+        return self._lldp_neighbors.get(switch.node_id, {})
 
     def get_sensors_for_switch(self, switch: SwitchConfig, values: dict) -> list[SensorDef]:
         """Build SensorDef list for switch-level hardware sensors only.
@@ -1080,7 +1112,7 @@ def main():
                     poe_key = f"port{nn}_poe_mw"
                     if hw_values and poe_key in hw_values:
                         port_data["poe_watts"] = hw_values[poe_key]
-                    client.publish(port_topic, _json.dumps(port_data), retain=False)
+                    client.publish(port_topic, _json.dumps(port_data), retain=True)
 
                 client.publish(avail, "online", retain=True)
                 log.info(
