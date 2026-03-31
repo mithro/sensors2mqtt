@@ -1,16 +1,14 @@
 [Unit]
-Description=sensors2mqtt IPMI sensor collector (big-storage)
+Description=sensors2mqtt IPMI sensor collector
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/opt/sensors2mqtt/bin/python -m sensors2mqtt.collector.ipmi_sensors
+ExecStart=/usr/bin/python3 -m sensors2mqtt.collector.ipmi_sensors
 Restart=always
 RestartSec=10
-Environment=MQTT_HOST=ha.welland.mithis.com
-Environment=BMC_HOST=10.1.5.150
-Environment=POLL_INTERVAL=30
+EnvironmentFile=-/etc/sensors2mqtt/env
 
 [Install]
 WantedBy=multi-user.target
