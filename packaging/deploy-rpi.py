@@ -9,17 +9,16 @@ Usage:
 """
 
 import argparse
+import os
 import subprocess
 import sys
 
-IOT_HOSTS = [
-    ("tim", "ipv4.eth0.rpi5-netv2.iot.welland.mithis.com"),
-    ("tim", "ipv4.eth0.rpiz-serial.iot.welland.mithis.com"),
-    ("tim", "ipv4.eth0.rpi-sdr-kraken.iot.welland.mithis.com"),
-    ("tim", "ipv4.eth0.rpi-sdr-pluto.iot.welland.mithis.com"),
+IOT_HOSTS: list[tuple[str, str]] = [
+    # Add your RPi hosts here as ("user", "hostname") tuples
+    # Example: ("pi", "rpi5.local"),
 ]
 
-APT_REPO_URL = "http://ten64.welland.mithis.com/apt/sensors2mqtt/"
+APT_REPO_URL = os.environ.get("APT_REPO_URL", "")
 GPG_KEY_URL = f"{APT_REPO_URL}sensors2mqtt.gpg"
 
 
@@ -92,6 +91,10 @@ def main():
     parser.add_argument("--all-iot", action="store_true", help="Deploy to all IoT RPis")
     parser.add_argument("hosts", nargs="*", help="user@host pairs to deploy to")
     args = parser.parse_args()
+
+    if not APT_REPO_URL:
+        print("ERROR: APT_REPO_URL environment variable is required", file=sys.stderr)
+        sys.exit(1)
 
     if args.all_iot:
         targets = IOT_HOSTS

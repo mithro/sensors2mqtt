@@ -1,0 +1,18 @@
+# Test fixture config for SNMP collector tests
+
+[switches.test-m4300]
+model = "m4300"
+host = "test-m4300.test"
+community = "public"
+
+[switches.test-gsm7252ps]
+model = "gsm7252ps"
+host = "test-gsm7252ps.test"
+community = "public"
+write_community = "private"
+
+[switches.test-s3300]
+model = "s3300"
+host = "test-s3300.test"
+community = "public"
+write_community = "private"

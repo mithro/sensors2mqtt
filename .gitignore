@@ -20,6 +20,9 @@ build/
 # uv
 uv.lock
 
+# Site-specific config (see *.example files)
+snmp.toml
+
 # Temp
 tmp/
 

@@ -1,4 +1,4 @@
-iso.0.8802.1.1.2.1.4.1.1.9.72.42.2 = STRING: "tweed.welland.mithis.com"
-iso.0.8802.1.1.2.1.4.1.1.9.72.48.3 = STRING: "tweed.welland.mithis.com"
+iso.0.8802.1.1.2.1.4.1.1.9.72.42.2 = STRING: "tweed.example.com"
+iso.0.8802.1.1.2.1.4.1.1.9.72.48.3 = STRING: "tweed.example.com"
 iso.0.8802.1.1.2.1.4.1.1.9.97.49.4 = STRING: "sw-cisco-shed"
-iso.0.8802.1.1.2.1.4.1.1.9.8196.51.10 = STRING: "sw-netgear-gsm7252ps-s1.welland.mithis.com"
+iso.0.8802.1.1.2.1.4.1.1.9.8196.51.10 = STRING: "sw-netgear-gsm7252ps-s1.example.com"

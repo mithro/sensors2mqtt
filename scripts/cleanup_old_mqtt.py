@@ -10,14 +10,15 @@ Removes:
 Run this ONCE after upgrading to the per-port state topic format.
 """
 
+import os
 import time
 
 import paho.mqtt.client as mqtt
 
-MQTT_HOST = "ha.welland.mithis.com"
-MQTT_PORT = 1883
-MQTT_USER = "DVES_USER"
-MQTT_PASS = "DVES_USER"
+MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
+MQTT_USER = os.environ.get("MQTT_USER", "")
+MQTT_PASS = os.environ.get("MQTT_PASSWORD", "")
 
 # Switches and their old suffixes
 OLD_SWITCHES = {

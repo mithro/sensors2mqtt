@@ -68,7 +68,7 @@ For a "reboot via PoE" button (future enhancement):
 ```toml
 [switches.sw-netgear-gsm7252ps-s2]
 model = "gsm7252ps"
-host = "sw-netgear-gsm7252ps-s2.welland.mithis.com"
+host = "sw-netgear-gsm7252ps-s2.example.com"
 community = "public"
 write_community = "private"
 ```
@@ -118,7 +118,7 @@ Publish current enable/disable state to each port's state topic.
 ```toml
 [switches.sw-netgear-s3300-1]
 model = "s3300"
-host = "sw-netgear-s3300-1.welland.mithis.com"
+host = "sw-netgear-s3300-1.example.com"
 community = "public"
 write_community = "pib"
 protected_ports = [41, 42]  # tweed — never toggle PoE

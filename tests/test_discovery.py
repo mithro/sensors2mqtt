@@ -99,10 +99,10 @@ class TestDiscoveryPayload:
     def test_device_with_config_url(self):
         device = DeviceInfo(
             node_id="x", name="x", manufacturer="x", model="x",
-            configuration_url="https://10.1.5.150",
+            configuration_url="https://bmc.example.com",
         )
         payload = discovery_payload(make_sensor(), device, state_topic="t", avail_topic="a")
-        assert payload["device"]["configuration_url"] == "https://10.1.5.150"
+        assert payload["device"]["configuration_url"] == "https://bmc.example.com"
 
     def test_no_device_class(self):
         sensor = make_sensor(device_class=None)

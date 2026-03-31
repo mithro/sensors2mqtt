@@ -9,11 +9,11 @@ auto-discovery. Each collector runs as a systemd service on a target host.
 
 ```
 BasePublisher (base.py)          — MQTT connection, poll loop, signals, discovery
-├── SnmpCollector (collector/snmp.py)      — multi-switch SNMP polling (ten64)
+├── SnmpCollector (collector/snmp.py)      — multi-switch SNMP polling
 ├── LocalCollector (collector/local/base.py) — shared sysfs/proc/hwmon infrastructure
 │   ├── RpiCollector (collector/local/rpi.py)       — RPi sensors (all models)
-│   └── MellanoxCollector (collector/local/mellanox.py) — Mellanox SN2410 (sw-bb-25g)
-└── IpmiSensorCollector (collector/ipmi_sensors.py) — ipmitool + BMC web API (big-storage)
+│   └── MellanoxCollector (collector/local/mellanox.py) — Mellanox SN2410 switch sensors
+└── IpmiSensorCollector (collector/ipmi_sensors.py) — ipmitool + BMC web API
 ```
 
 `python -m sensors2mqtt.collector.local` auto-detects hardware and runs the right collector.
@@ -30,16 +30,18 @@ homeassistant/sensor/{node_id}/{suffix}/config — HA auto-discovery (retained)
 
 `node_id` is a Python-safe identifier like `m4300_24x`, `sw_bb_25g`, `big_storage`.
 
-## Switch Inventory (SNMP targets)
+## Supported Switch Models (SNMP)
 
-| Switch | IP | Community | OID prefix | MIB |
-|--------|----|-----------|------------|-----|
-| M4300-24X | 10.1.5.13 | public | 4526.10 | boxServices (.43.1.6 fans, .43.1.15 thermal, .43.1.8 PSU) |
-| GSM7252PS-S1 | 10.1.5.23 | public | 4526.10 | FASTPATH PoE (.15.1.1.1.2 per-port mW) |
-| S3300-52X-PoE+ | 10.1.5.11 | public | 4526.11 | boxServices + PoE (same MIB structure, different prefix) |
+| Model | OID prefix | MIB |
+|-------|------------|-----|
+| M4300-24X | 4526.10 | boxServices (.43.1.6 fans, .43.1.15 thermal, .43.1.8 PSU) |
+| GSM7252PS | 4526.10 | FASTPATH PoE (.15.1.1.1.2 per-port mW) |
+| S3300-52X-PoE+ | 4526.11 | boxServices + PoE (same MIB structure, different prefix) |
 
 The Netgear enterprise OID split: `4526.10` = Fully Managed (M4300, GSM7252PS),
 `4526.11` = Smart Managed Pro (S3300). Same MIB structure within each subtree.
+
+Switch connection details are configured in `snmp.toml` (see `snmp.toml.example`).
 
 ## Development
 

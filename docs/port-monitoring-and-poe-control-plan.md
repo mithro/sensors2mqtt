@@ -338,13 +338,13 @@ If timeout: publish the actual state (don't revert). If link stays up after PoE 
 ```toml
 [switches.sw-netgear-gsm7252ps-s2]
 model = "gsm7252ps"
-host = "sw-netgear-gsm7252ps-s2.welland.mithis.com"
+host = "sw-netgear-gsm7252ps-s2.example.com"
 community = "public"
 write_community = "private"
 
 [switches.sw-netgear-s3300-1]
 model = "s3300"
-host = "sw-netgear-s3300-1.welland.mithis.com"
+host = "sw-netgear-s3300-1.example.com"
 community = "public"
 write_community = "private"
 ```
@@ -465,14 +465,14 @@ uv run python -m sensors2mqtt.collector.ipmi_sdr  # (brief run, ctrl-C after fir
 
 Run the sensor collector in one-shot mode against each switch individually and verify output:
 
-**sw-netgear-m4300-24x** (10.1.5.13) — 24 ports, no PoE:
+**sw-netgear-m4300-24x** (switch-ip) — 24 ports, no PoE:
 ```bash
 # Verify: link status + speed for all 24 ports, VLAN PVID, LLDP for connected ports
 # Expected: ports 1-2 (trunks, 10G), port 3 (big-storage BMC, 1G), ports 19-20 (big-storage 10G), ports 21-24 (LAG to sw-bb-25g, 10G)
 # No PoE sensors should appear
 ```
 
-**sw-netgear-gsm7252ps-s2** (10.1.5.23) — 48 PoE + 4 SFP+, PoE switch:
+**sw-netgear-gsm7252ps-s2** (switch-ip) — 48 PoE + 4 SFP+, PoE switch:
 ```bash
 # Verify: link + speed + VLAN + LLDP for all ports
 # Verify: PoE power + admin + detection for ports 1-48
@@ -480,7 +480,7 @@ Run the sensor collector in one-shot mode against each switch individually and v
 # Expected LLDP: rpi5-pmod, rpi4-pmod, sw-netgear-m4300-24x, sw-netgear-s3300-1, etc.
 ```
 
-**sw-netgear-s3300-1** (10.1.5.11) — 48 PoE + 4 SFP+, PoE switch:
+**sw-netgear-s3300-1** (switch-ip) — 48 PoE + 4 SFP+, PoE switch:
 ```bash
 # Verify: link + speed + VLAN + LLDP for all ports
 # Verify: PoE power + admin + detection for ports 1-48
@@ -493,15 +493,15 @@ Run the sensor collector in one-shot mode against each switch individually and v
 
 ```bash
 # Verify per-port state topics are published (not retained)
-mosquitto_sub -h ha.welland.mithis.com -u DVES_USER -P DVES_USER \
+mosquitto_sub -h ha.example.com -u $MQTT_USER -P $MQTT_USER \
   -t 'sensors2mqtt/+/port/+/state' -v -C 10
 
 # Verify state topics are NOT retained (start sub after publisher exits — should get nothing)
-mosquitto_sub -h ha.welland.mithis.com -u DVES_USER -P DVES_USER \
+mosquitto_sub -h ha.example.com -u $MQTT_USER -P $MQTT_USER \
   -t 'sensors2mqtt/+/port/+/state' -v -W 5
 
 # Verify discovery topics ARE retained
-mosquitto_sub -h ha.welland.mithis.com -u DVES_USER -P DVES_USER \
+mosquitto_sub -h ha.example.com -u $MQTT_USER -P $MQTT_USER \
   -t 'homeassistant/device/+/config' -v -C 3
 ```
 
@@ -513,7 +513,7 @@ mosquitto_sub -h ha.welland.mithis.com -u DVES_USER -P DVES_USER \
 # - entity_category: diagnostic on informational sensors
 # - device_class: connectivity on link status binary_sensors
 # - Correct device grouping (all port entities under one switch device)
-curl -s -H "Authorization: Bearer <token>" "http://ha.welland.mithis.com:8123/api/states" | \
+curl -s -H "Authorization: Bearer <token>" "http://ha.example.com:8123/api/states" | \
   uv run python -c "import json,sys; [print(f'{s[\"entity_id\"]:60s} {s[\"state\"]:>12s}  {s[\"attributes\"].get(\"friendly_name\",\"\")}') for s in sorted(json.load(sys.stdin), key=lambda x: x['entity_id']) if 'sensors2mqtt' in json.dumps(s)]"
 ```
 

@@ -10,11 +10,11 @@ standalone systemd service on the target host.
 
 ### Collectors
 
-| Collector | Host | Data Source | Sensors |
-|-----------|------|-------------|---------|
-| **snmp** | ten64 (router) | SNMP polls to managed switches | M4300 fans/thermal/PSU, GSM7252PS PoE power |
-| **hwmon** | sw-bb-25g (Mellanox SN2410) | `sensors -j` (local hwmon) | ASIC temp, CPU temp, board temp, 8 fans |
-| **ipmi_sensors** | big-storage (Supermicro X11DSC+) | IPMI Sensor Data Records + BMC web API | CPU/board/VRM/DIMM temps, fans, voltages, per-PSU PMBus |
+| Collector | Data Source | Example Sensors |
+|-----------|-------------|---------|
+| **snmp** | SNMP polls to managed switches | Netgear M4300 fans/thermal/PSU, GSM7252PS PoE power |
+| **local** | sysfs/hwmon on local host | RPi CPU temp/throttle, Mellanox SN2410 ASIC/fans |
+| **ipmi_sensors** | IPMI SDR + BMC web API | CPU/board/VRM/DIMM temps, fans, voltages, per-PSU PMBus |
 
 ## Install
 
@@ -33,13 +33,13 @@ sudo make install INSTALL_DIR=/opt/sensors2mqtt
 Each collector is runnable as a Python module:
 
 ```bash
-# SNMP collector (on ten64)
+# SNMP collector (polls remote switches)
 uv run python -m sensors2mqtt.collector.snmp
 
-# Hwmon collector (on sw-bb-25g)
-uv run python -m sensors2mqtt.collector.hwmon
+# Local collector (auto-detects RPi/Mellanox)
+uv run python -m sensors2mqtt.collector.local
 
-# IPMI sensor collector (on big-storage)
+# IPMI sensor collector (remote BMC)
 uv run python -m sensors2mqtt.collector.ipmi_sensors
 ```
 
@@ -47,13 +47,14 @@ uv run python -m sensors2mqtt.collector.ipmi_sensors
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MQTT_HOST` | `ha.welland.mithis.com` | MQTT broker hostname |
+| `MQTT_HOST` | `localhost` | MQTT broker hostname |
 | `MQTT_PORT` | `1883` | MQTT broker port |
-| `MQTT_USER` | `DVES_USER` | MQTT username |
-| `MQTT_PASSWORD` | `DVES_USER` | MQTT password |
+| `MQTT_USER` | *(empty)* | MQTT username |
+| `MQTT_PASSWORD` | *(empty)* | MQTT password |
 | `POLL_INTERVAL` | `30` | Seconds between polls |
-
-The IPMI sensor collector also reads `BMC_HOST`, `BMC_USER`, `BMC_PASS`.
+| `BMC_HOST` | *(required)* | BMC hostname (IPMI collector only) |
+| `BMC_USER` | *(required)* | BMC username (IPMI collector only) |
+| `BMC_PASS` | *(required)* | BMC password (IPMI collector only) |
 
 ## Architecture
 

@@ -105,21 +105,21 @@ class TestPollIpmiSensors:
     def test_success(self, mock_run):
         text = (FIXTURES / "ipmitool_sdr_big_storage.txt").read_text()
         mock_run.return_value = MagicMock(returncode=0, stdout=text, stderr="")
-        values = poll_ipmi_sensors("10.1.5.150", "ADMIN", "ADMIN")
+        values = poll_ipmi_sensors("bmc.example.com", "testuser", "testpass")
         assert values is not None
         assert "cpu1_temp" in values
 
     @patch("sensors2mqtt.collector.ipmi_sensors.subprocess.run")
     def test_failure(self, mock_run):
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Connection timed out")
-        values = poll_ipmi_sensors("10.1.5.150", "ADMIN", "ADMIN")
+        values = poll_ipmi_sensors("bmc.example.com", "testuser", "testpass")
         assert values is None
 
     @patch("sensors2mqtt.collector.ipmi_sensors.subprocess.run")
     def test_timeout(self, mock_run):
         import subprocess
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="ipmitool", timeout=30)
-        values = poll_ipmi_sensors("10.1.5.150", "ADMIN", "ADMIN")
+        values = poll_ipmi_sensors("bmc.example.com", "testuser", "testpass")
         assert values is None
 
 

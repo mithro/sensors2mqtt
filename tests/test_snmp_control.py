@@ -672,7 +672,7 @@ class TestFetchLldpNeighbors:
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout=(
-                'iso.0.8802.1.1.2.1.4.1.1.9.0.1.1 = STRING: "rpi5-pmod.iot.welland.mithis.com"\n'
+                'iso.0.8802.1.1.2.1.4.1.1.9.0.1.1 = STRING: "rpi5-pmod.iot.example.com"\n'
                 'iso.0.8802.1.1.2.1.4.1.1.9.0.2.1 = STRING: "rpi4-pmod"\n'
             ),
             stderr="",

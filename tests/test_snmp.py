@@ -17,7 +17,7 @@ from sensors2mqtt.collector.snmp import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
-CONFIG_FILE = Path(__file__).parent.parent / "snmp.toml"
+CONFIG_FILE = Path(__file__).parent / "fixtures" / "snmp_test.toml"
 
 
 def _make_switch(name: str, model_name: str) -> SwitchConfig:
@@ -167,20 +167,19 @@ class TestModelDefinitions:
 
 
 class TestConfigLoading:
-    def test_load_real_config(self):
-        """Load the actual snmp.toml shipped with the repo."""
+    def test_load_config(self):
+        """Load the test config fixture."""
         switches = load_config(CONFIG_FILE)
-        assert len(switches) == 4
+        assert len(switches) == 3
         names = {s.name for s in switches}
-        assert "sw-netgear-m4300-24x" in names
-        assert "sw-netgear-gsm7252ps-s1" in names
-        assert "sw-netgear-gsm7252ps-s2" in names
-        assert "sw-netgear-s3300-1" in names
+        assert "test-m4300" in names
+        assert "test-gsm7252ps" in names
+        assert "test-s3300" in names
 
     def test_config_node_ids(self):
         switches = load_config(CONFIG_FILE)
         ids = {s.node_id for s in switches}
-        assert "sw_netgear_m4300_24x" in ids
+        assert "test_m4300" in ids
 
     def test_config_hosts_are_dns(self):
         switches = load_config(CONFIG_FILE)
@@ -193,10 +192,10 @@ class TestConfigLoading:
         """Config loading should populate sensors from model definitions."""
         switches = load_config(CONFIG_FILE)
         by_name = {s.name: s for s in switches}
-        m4300 = by_name["sw-netgear-m4300-24x"]
+        m4300 = by_name["test-m4300"]
         assert len(m4300.sensors) >= 4
         assert len(m4300.walk_sensors) == 0
-        s3300 = by_name["sw-netgear-s3300-1"]
+        s3300 = by_name["test-s3300"]
         assert len(s3300.sensors) >= 5
         assert len(s3300.walk_sensors) >= 1
 
@@ -210,9 +209,9 @@ class TestConfigLoading:
         """PoE switches should have write_community from config."""
         switches = load_config(CONFIG_FILE)
         by_name = {s.name: s for s in switches}
-        assert by_name["sw-netgear-gsm7252ps-s2"].write_community == "private"
-        assert by_name["sw-netgear-s3300-1"].write_community == "private"
-        assert by_name["sw-netgear-m4300-24x"].write_community is None
+        assert by_name["test-gsm7252ps"].write_community == "private"
+        assert by_name["test-s3300"].write_community == "private"
+        assert by_name["test-m4300"].write_community is None
 
     def test_no_config_raises(self):
         """When no config file found, FileNotFoundError is raised."""

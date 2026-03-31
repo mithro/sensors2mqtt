@@ -69,7 +69,7 @@ service already excludes it. If M4300 VLAN control is ever needed, it would
 require SSH CLI commands instead of SNMP:
 
 ```
-sshpass -p PASSWORD ssh -o PubkeyAuthentication=no -tt admin@10.1.5.13
+sshpass -p PASSWORD ssh -o PubkeyAuthentication=no -tt admin@SWITCH_IP
 # Then: interface 0/N → switchport access vlan VLAN_ID
 ```
 
