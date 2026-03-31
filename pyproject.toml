@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "sensors2mqtt"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Publish hardware sensor data to Home Assistant via MQTT auto-discovery"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -14,6 +14,12 @@ dependencies = [
 
 [project.optional-dependencies]
 ipmi = ["requests"]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/sensors2mqtt/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sensors2mqtt"]

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from importlib.metadata import version
 
 import paho.mqtt.client as mqtt
 
@@ -15,7 +16,7 @@ DISCOVERY_PREFIX = "homeassistant"
 
 ORIGIN = {
     "name": "sensors2mqtt",
-    "sw": "0.1.0",
+    "sw": version("sensors2mqtt"),
     "url": "https://github.com/mithro/sensors2mqtt",
 }
 
