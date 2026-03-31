@@ -1,0 +1,30 @@
+# sensors2mqtt SNMP collector configuration
+#
+# Copy this file to snmp.toml (or /etc/sensors2mqtt/snmp.toml) and edit
+# to match your network.
+#
+# Each switch needs a model (defines which OIDs to poll) and connection details.
+# Known models: m4300, gsm7252ps, s3300
+#
+# The switch name (TOML key) should match the DNS hostname.
+# It becomes both the HA device name and the MQTT node_id (hyphens -> underscores).
+# If host is omitted, it defaults to the switch name (bare hostname).
+#
+# Port names are read automatically from the switch via SNMP ifAlias.
+
+[switches.my-m4300-switch]
+model = "m4300"
+host = "my-m4300-switch.example.com"
+community = "public"
+
+# [switches.my-gsm7252ps-switch]
+# model = "gsm7252ps"
+# host = "my-gsm7252ps-switch.example.com"
+# community = "public"
+# write_community = "private"   # needed for PoE control
+
+# [switches.my-s3300-switch]
+# model = "s3300"
+# host = "my-s3300-switch.example.com"
+# community = "public"
+# write_community = "private"   # needed for PoE control
