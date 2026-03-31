@@ -1,0 +1,6 @@
+#!/usr/bin/make -f
+
+export SETUPTOOLS_SCM_PRETEND_VERSION = $(shell dpkg-parsechangelog -SVersion | sed 's/-.*//')
+
+%:
+	dh $@ --buildsystem=pybuild

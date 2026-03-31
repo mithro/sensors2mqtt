@@ -1,0 +1,6 @@
+sensors2mqtt (0.1.0) unstable; urgency=medium
+
+  * Initial Debian package.
+  * Standard dh-python packaging with pybuild.
+
+ -- Tim Ansell <tim@mithis.com>  Mon, 31 Mar 2026 12:00:00 +1030

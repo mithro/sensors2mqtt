@@ -1,0 +1,17 @@
+#!/bin/bash
+set -e
+
+if [ "$1" = "configure" ]; then
+    # Create config directory if it does not exist
+    mkdir -p /etc/sensors2mqtt
+
+    # Install default env file if none exists
+    if [ ! -f /etc/sensors2mqtt/env ]; then
+        cp /usr/share/sensors2mqtt/env.example /etc/sensors2mqtt/env
+    fi
+
+    systemctl daemon-reload
+    systemctl enable sensors2mqtt-local
+fi
+
+#DEBHELPER#

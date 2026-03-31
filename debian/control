@@ -1,0 +1,40 @@
+Source: sensors2mqtt
+Section: python
+Priority: optional
+Maintainer: Tim Ansell <tim@mithis.com>
+Build-Depends: debhelper-compat (= 13),
+               dh-python,
+               pybuild-plugin-pyproject,
+               python3-all,
+               python3-hatchling,
+               python3-hatch-vcs,
+Standards-Version: 4.7.0
+Homepage: https://github.com/mithro/sensors2mqtt
+Vcs-Git: https://github.com/mithro/sensors2mqtt.git
+Vcs-Browser: https://github.com/mithro/sensors2mqtt
+
+Package: python3-sensors2mqtt
+Architecture: all
+Depends: ${python3:Depends},
+         ${misc:Depends}
+Description: Publish hardware sensor data to Home Assistant via MQTT
+ sensors2mqtt is a collection of sensor collectors that poll hardware
+ monitoring data and publish it to Home Assistant via MQTT auto-discovery.
+ .
+ Supported collectors include SNMP (Netgear managed switches), local
+ sysfs/hwmon (Raspberry Pi, Mellanox SN2410), and IPMI (Supermicro BMC).
+ .
+ This package provides the Python library and collector modules.
+
+Package: sensors2mqtt-local
+Architecture: all
+Depends: python3-sensors2mqtt (= ${binary:Version}),
+         python3,
+         systemd,
+         ${misc:Depends}
+Description: sensors2mqtt local sensor collector systemd service
+ Installs and enables the sensors2mqtt-local systemd service for
+ collecting sensor data from the local system. Auto-detects hardware
+ (Raspberry Pi, Mellanox SN2410) and runs the appropriate collector.
+ .
+ Configure MQTT connection via /etc/sensors2mqtt/env.

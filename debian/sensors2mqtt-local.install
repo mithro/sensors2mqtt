@@ -1,0 +1,2 @@
+deploy/sensors2mqtt-local.service lib/systemd/system/
+deploy/env.example usr/share/sensors2mqtt/
