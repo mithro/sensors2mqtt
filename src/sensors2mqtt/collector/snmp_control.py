@@ -120,12 +120,11 @@ def fetch_lldp_neighbors(switch: SwitchConfig, timeout: int = 30) -> dict[int, s
     except Exception as e:
         log.warning("%s: LLDP sysName walk error: %s", switch.name, e)
 
-    # Strip "<site>.mithis.com" domain suffix
+    # Strip FQDN to short hostname
     for port in sys_names:
         sn = sys_names[port]
-        parts = sn.split(".")
-        if len(parts) >= 3 and parts[-1] == "com" and parts[-2] == "mithis":
-            sys_names[port] = parts[0]
+        if "." in sn:
+            sys_names[port] = sn.split(".")[0]
 
     if sys_names:
         log.info("%s: fetched %d LLDP neighbors", switch.name, len(sys_names))

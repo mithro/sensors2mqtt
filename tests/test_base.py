@@ -12,10 +12,10 @@ from sensors2mqtt.discovery import DeviceInfo, SensorDef
 class TestMqttConfig:
     def test_defaults(self):
         config = MqttConfig()
-        assert config.host == "ha.welland.mithis.com"
+        assert config.host == "localhost"
         assert config.port == 1883
-        assert config.user == "DVES_USER"
-        assert config.password == "DVES_USER"
+        assert config.user == ""
+        assert config.password == ""
         assert config.poll_interval == 30
 
     def test_from_env(self):

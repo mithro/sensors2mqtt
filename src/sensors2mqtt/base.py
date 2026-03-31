@@ -23,10 +23,10 @@ log = logging.getLogger(__name__)
 class MqttConfig:
     """MQTT broker connection settings."""
 
-    host: str = "ha.welland.mithis.com"
+    host: str = "localhost"
     port: int = 1883
-    user: str = "DVES_USER"
-    password: str = "DVES_USER"
+    user: str = ""
+    password: str = ""
     poll_interval: int = 30
 
     @classmethod

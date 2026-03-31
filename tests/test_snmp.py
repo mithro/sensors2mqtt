@@ -214,11 +214,12 @@ class TestConfigLoading:
         assert by_name["sw-netgear-s3300-1"].write_community == "private"
         assert by_name["sw-netgear-m4300-24x"].write_community is None
 
-    def test_builtin_defaults(self):
-        """When no config file found via default paths, builtins are used."""
-        from sensors2mqtt.collector.snmp import _builtin_defaults
-        switches = _builtin_defaults()
-        assert len(switches) == 3
+    def test_no_config_raises(self):
+        """When no config file found, FileNotFoundError is raised."""
+        import pytest
+        from sensors2mqtt.collector.snmp import load_config
+        with pytest.raises(FileNotFoundError):
+            load_config(Path("/nonexistent/snmp.toml"))
 
 
 class TestVlanNameLookup:

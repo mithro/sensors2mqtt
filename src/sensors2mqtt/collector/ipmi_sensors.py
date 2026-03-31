@@ -442,9 +442,11 @@ def main():
     logging.getLogger().setLevel(getattr(logging, args.log_level))
 
     config = MqttConfig.from_env()
-    bmc_host = os.environ.get("BMC_HOST", "10.1.5.150")
-    bmc_user = os.environ.get("BMC_USER", "ADMIN")
-    bmc_pass = os.environ.get("BMC_PASS", "ADMIN")
+    bmc_host = os.environ.get("BMC_HOST")
+    bmc_user = os.environ.get("BMC_USER")
+    bmc_pass = os.environ.get("BMC_PASS")
+    if not all([bmc_host, bmc_user, bmc_pass]):
+        parser.error("BMC_HOST, BMC_USER, and BMC_PASS environment variables are required")
 
     stop_event = threading.Event()
     discovery_published = False

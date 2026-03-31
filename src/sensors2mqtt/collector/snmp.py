@@ -247,7 +247,7 @@ def load_config(path: Path | None = None) -> list[SwitchConfig]:
     Config format:
         [switches.sw-netgear-m4300-24x]
         model = "m4300"
-        host = "sw-netgear-m4300-24x.welland.mithis.com"
+        host = "sw-netgear-m4300-24x.example.com"
         community = "public"
 
     The switch name (TOML key) becomes both the display name and the
@@ -259,8 +259,11 @@ def load_config(path: Path | None = None) -> list[SwitchConfig]:
                 path = candidate
                 break
         if path is None:
-            log.warning("No config file found, using built-in defaults")
-            return _builtin_defaults()
+            raise FileNotFoundError(
+                "No SNMP config file found. Create one at "
+                + " or ".join(str(p) for p in DEFAULT_CONFIG_PATHS)
+                + " (see snmp.toml.example)"
+            )
 
     log.info("Loading config from %s", path)
     with open(path, "rb") as f:
@@ -276,7 +279,7 @@ def load_config(path: Path | None = None) -> list[SwitchConfig]:
 
         model = MODELS[model_name]
         node_id = name.replace("-", "_")
-        host = sw_data.get("host", f"{name}.welland.mithis.com")
+        host = sw_data.get("host", name)
         community = sw_data.get("community", "public")
         write_community = sw_data.get("write_community")
 
@@ -296,32 +299,6 @@ def load_config(path: Path | None = None) -> list[SwitchConfig]:
 
     log.info("Loaded %d switches from config", len(switches))
     return switches
-
-
-def _builtin_defaults() -> list[SwitchConfig]:
-    """Fallback defaults when no config file is found."""
-    return [
-        _make_switch("sw-netgear-m4300-24x", "m4300"),
-        _make_switch("sw-netgear-gsm7252ps-s2", "gsm7252ps"),
-        _make_switch("sw-netgear-s3300-1", "s3300"),
-    ]
-
-
-def _make_switch(name: str, model_name: str) -> SwitchConfig:
-    """Create a SwitchConfig from a name and model, using default host/community."""
-    model = MODELS[model_name]
-    return SwitchConfig(
-        node_id=name.replace("-", "_"),
-        name=name,
-        host=f"{name}.welland.mithis.com",
-        community="public",
-        manufacturer=model.manufacturer,
-        model=model.model,
-        port_count=model.port_count,
-        poe_port_count=model.poe_port_count,
-        sensors=list(model.sensors),
-        walk_sensors=list(model.walk_sensors),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -821,14 +798,13 @@ class SnmpCollector:
                 log.warning("%s: LLDP .%s walk error: %s", switch.name, field_oid, e)
                 success = False
 
-        # Strip "<site>.mithis.com" domain suffix from sysName values
+        # Strip FQDN to short hostname in sysName values
         for port in sys_names:
             sn = sys_names[port]
-            parts = sn.split(".")
-            # e.g. "sw-bb-25g.net.welland.mithis.com" → "sw-bb-25g"
-            # e.g. "ten64.welland.mithis.com" → "ten64"
-            if len(parts) >= 3 and parts[-1] == "com" and parts[-2] == "mithis":
-                sys_names[port] = parts[0]
+            if "." in sn:
+                # e.g. "sw-bb-25g.net.example.com" → "sw-bb-25g"
+                # e.g. "ten64.example.com" → "ten64"
+                sys_names[port] = sn.split(".")[0]
 
         # Combine as "port_desc.sys_name" (e.g. "eth0.rpi5-pmod") to match ifAlias convention
         neighbors: dict[int, str] = {}
