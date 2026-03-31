@@ -14,6 +14,11 @@ dependencies = [
 
 [project.optional-dependencies]
 ipmi = ["requests"]
+docs = [
+    "sphinx",
+    "myst-parser",
+    "sphinx-rtd-theme",
+]
 
 [tool.hatch.version]
 source = "vcs"

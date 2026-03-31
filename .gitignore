@@ -24,6 +24,9 @@ uv.lock
 # Site-specific config (see *.example files)
 snmp.toml
 
+# Docs build
+docs/_build/
+
 # Temp
 tmp/
 
