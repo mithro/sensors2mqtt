@@ -27,6 +27,16 @@ snmp.toml
 # Docs build
 docs/_build/
 
+# Debian build artifacts
+.pybuild/
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/*.debhelper
+debian/*.substvars
+debian/python3-sensors2mqtt/
+debian/sensors2mqtt-local/
+
 # Temp
 tmp/
 

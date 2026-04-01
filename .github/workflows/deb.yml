@@ -1,0 +1,120 @@
+name: Debian Packages
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git dpkg-dev debhelper dh-python pybuild-plugin-pyproject \
+            python3-all python3-hatchling python3-hatch-vcs \
+            python3-paho-mqtt python3-pytest
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Trust repo directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build packages
+        run: dpkg-buildpackage -us -uc
+
+      - name: Collect debs
+        run: |
+          mkdir -p built-debs
+          cp ../*.deb built-debs/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debs
+          path: built-debs/
+
+  publish-apt:
+    needs: build-deb
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: debs
+          path: apt-repo/
+
+      - name: Generate apt repo metadata
+        run: |
+          cd apt-repo
+          dpkg-scanpackages --multiversion . > Packages
+          gzip -k Packages
+
+          cat > Release <<EOF
+          Origin: sensors2mqtt
+          Label: sensors2mqtt
+          Suite: stable
+          Codename: trixie
+          Architectures: all
+          Components: main
+          Description: sensors2mqtt apt repository
+          EOF
+          sed -i 's/^          //' Release
+
+          apt-ftparchive release . >> Release
+
+      - name: Sign repo
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        if: env.GPG_PRIVATE_KEY != ''
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          cd apt-repo
+          gpg --batch --yes --armor --detach-sign --output Release.gpg Release
+          gpg --batch --yes --armor --clearsign --output InRelease Release
+          gpg --batch --yes --armor --export > sensors2mqtt.gpg
+
+      - name: Create index page
+        run: |
+          cat > apt-repo/index.html <<'HTMLEOF'
+          <!DOCTYPE html>
+          <html>
+          <head><title>sensors2mqtt apt repository</title></head>
+          <body>
+          <h1>sensors2mqtt apt repository</h1>
+          <h2>Setup</h2>
+          <pre>
+          # Download signing key
+          curl -fsSL https://mithro.github.io/sensors2mqtt/sensors2mqtt.gpg \
+            | sudo tee /etc/apt/keyrings/sensors2mqtt.gpg > /dev/null
+
+          # Add apt source
+          echo "deb [signed-by=/etc/apt/keyrings/sensors2mqtt.gpg] https://mithro.github.io/sensors2mqtt/ ./" \
+            | sudo tee /etc/apt/sources.list.d/sensors2mqtt.list
+
+          # Install
+          sudo apt update
+          sudo apt install sensors2mqtt-local
+          </pre>
+          </body>
+          </html>
+          HTMLEOF
+          sed -i 's/^          //' apt-repo/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apt-repo/
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
