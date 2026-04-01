@@ -14,7 +14,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            git dpkg-dev debhelper dh-python pybuild-plugin-pyproject \
+            ca-certificates git dpkg-dev debhelper dh-python pybuild-plugin-pyproject \
             python3-all python3-hatchling python3-hatch-vcs \
             python3-paho-mqtt python3-pytest
 
