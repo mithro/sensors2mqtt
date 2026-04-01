@@ -24,7 +24,6 @@ GPG_KEY_URL = f"{APT_REPO_URL}sensors2mqtt.gpg"
 
 def ssh_run(user: str, host: str, cmd: str, timeout: int = 120) -> bool:
     """Run a command via SSH. Returns True on success."""
-    full_cmd = f"ssh -o ConnectTimeout=5 {user}@{host} '{cmd}'"
     print(f"  $ {cmd}")
     result = subprocess.run(
         ["ssh", "-o", "ConnectTimeout=5", f"{user}@{host}", cmd],
@@ -115,7 +114,7 @@ def main():
         try:
             results[host] = deploy_host(user, host)
         except subprocess.TimeoutExpired:
-            print(f"  TIMEOUT")
+            print("  TIMEOUT")
             results[host] = False
 
     print("\n=== Summary ===")

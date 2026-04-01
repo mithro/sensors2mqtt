@@ -39,6 +39,7 @@ pythonpath = ["src"]
 [tool.ruff]
 src = ["src", "tests"]
 line-length = 100
+extend-exclude = ["_version.py", "debian"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]

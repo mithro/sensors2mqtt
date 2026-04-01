@@ -3,6 +3,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from sensors2mqtt.collector.snmp import (
     MODELS,
     SnmpCollector,
@@ -215,8 +217,6 @@ class TestConfigLoading:
 
     def test_no_config_raises(self):
         """When no config file found, FileNotFoundError is raised."""
-        import pytest
-        from sensors2mqtt.collector.snmp import load_config
         with pytest.raises(FileNotFoundError):
             load_config(Path("/nonexistent/snmp.toml"))
 
