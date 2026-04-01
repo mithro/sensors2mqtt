@@ -10,6 +10,7 @@ Build-Depends: debhelper-compat (= 13),
                python3-hatch-vcs,
                python3-paho-mqtt,
                python3-pytest,
+               python3-requests,
 Standards-Version: 4.7.0
 Homepage: https://github.com/mithro/sensors2mqtt
 Vcs-Git: https://github.com/mithro/sensors2mqtt.git
