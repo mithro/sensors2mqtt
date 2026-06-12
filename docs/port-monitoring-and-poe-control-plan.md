@@ -384,6 +384,9 @@ Write community `private` confirmed working on both PoE switches. SNMP SET not y
 - Use multi-component discovery
 - Include `origin` dict
 - Use ifAlias for entity names (fetched via shared `fetch_port_descriptions()`)
+  — *superseded as built: hostname embedding in entity names was removed in
+  `fb327b5` (entity names are short; the per-port device name identifies the
+  port) and the helper was later deleted as dead code*
 
 **Step 5: Toggle command handler**
 - Subscribe to `sensors2mqtt/+/port/+/poe/set`
