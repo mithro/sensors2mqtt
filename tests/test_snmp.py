@@ -258,12 +258,8 @@ class TestModelDefinitions:
     def test_m4300_model(self):
         m = MODELS["m4300"]
         assert m.manufacturer == "Netgear"
-        assert len(m.sensors) >= 4
-        suffixes = {s.suffix for s in m.sensors}
-        assert "fan1_rpm" in suffixes
-        assert "fan2_rpm" in suffixes
-        assert "temp" in suffixes
-        assert "psu_power" in suffixes
+        assert len(m.sensors) == 0
+        assert {b.kind for b in m.box_walks} == {"fan", "temp", "psu_power"}
         # M4300 has no PoE
         assert len(m.walk_sensors) == 0
 
@@ -272,31 +268,35 @@ class TestModelDefinitions:
         assert len(m.walk_sensors) >= 1
         walk = m.walk_sensors[0]
         assert "poe" in walk.suffix_template
-        # GSM7252PS has no boxServices
-        assert len(m.sensors) == 0
+        # Box sensors are walk-discovered (fans + 4 PSU rails on this model)
+        assert {b.kind for b in m.box_walks} == {"fan", "temp", "psu_power"}
 
     def test_s3300_model(self):
         m = MODELS["s3300"]
-        assert len(m.sensors) >= 5
-        suffixes = {s.suffix for s in m.sensors}
-        assert "fan3_rpm" in suffixes  # 3 fans
+        assert {b.kind for b in m.box_walks} == {"fan", "temp", "psu_power"}
         # S3300 has both boxServices AND PoE
         assert len(m.walk_sensors) >= 1
 
     def test_s3300_uses_dot11_oids(self):
         """S3300 uses 4526.11 (Smart Managed Pro), not 4526.10."""
         m = MODELS["s3300"]
-        for sensor in m.sensors:
-            assert ".4526.11." in sensor.oid, (
-                f"{sensor.suffix} OID should use .4526.11.: {sensor.oid}"
+        for box in m.box_walks:
+            assert ".4526.11." in box.base_oid, (
+                f"{box.kind} OID should use .4526.11.: {box.base_oid}"
             )
         for walk in m.walk_sensors:
             assert ".4526.11." in walk.base_oid
 
     def test_m4300_uses_dot10_oids(self):
         m = MODELS["m4300"]
-        for sensor in m.sensors:
-            assert ".4526.10." in sensor.oid
+        for box in m.box_walks:
+            assert ".4526.10." in box.base_oid
+
+    def test_gsm7252ps_uses_dot10_oids(self):
+        """GSM7252PS runs Fully Managed firmware — 4526.10, not .11."""
+        m = MODELS["gsm7252ps"]
+        for box in m.box_walks:
+            assert ".4526.10." in box.base_oid
 
 
 class TestConfigLoading:
@@ -321,16 +321,14 @@ class TestConfigLoading:
                 f"{sw.name} uses IP {sw.host} instead of DNS hostname"
             )
 
-    def test_config_sensors_populated(self):
-        """Config loading should populate sensors from model definitions."""
+    def test_config_box_walks_populated(self):
+        """Config loading should populate box walks from model definitions."""
         switches = load_config(CONFIG_FILE)
         by_name = {s.name: s for s in switches}
-        m4300 = by_name["test-m4300"]
-        assert len(m4300.sensors) >= 4
-        assert len(m4300.walk_sensors) == 0
-        s3300 = by_name["test-s3300"]
-        assert len(s3300.sensors) >= 5
-        assert len(s3300.walk_sensors) >= 1
+        for name in ("test-m4300", "test-gsm7252ps", "test-s3300"):
+            assert len(by_name[name].box_walks) == 3, name
+        assert len(by_name["test-m4300"].walk_sensors) == 0
+        assert len(by_name["test-s3300"].walk_sensors) >= 1
 
     def test_load_missing_config_raises(self):
         """Explicit path that doesn't exist should raise FileNotFoundError."""
@@ -474,16 +472,17 @@ class TestSnmpCollector:
 
     @patch("sensors2mqtt.collector.snmp.subprocess.run")
     def test_poll_switch_success(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout='iso.3.6.1... = STRING: "5280"\n',
-            stderr="",
-        )
+        mock_run.side_effect = _box_walk_side_effect({
+            ".6.1.4": (FIXTURES / "snmpwalk_m4300_fans.txt").read_text(),
+            ".15.1.3": (FIXTURES / "snmpwalk_m4300_thermal.txt").read_text(),
+            ".8.1.5": (FIXTURES / "snmpwalk_m4300_psu.txt").read_text(),
+        })
         sw = _make_switch("test-m4300", "m4300")
         collector = self.make_collector(switches=[sw])
         values = collector.poll_switch(sw)
-        assert values is not None
-        assert len(values) > 0
+        assert values == {
+            "fan1_rpm": 5280, "fan2_rpm": 4560, "temp": 65, "psu_power": 65,
+        }
 
     @patch("sensors2mqtt.collector.snmp.subprocess.run")
     def test_poll_switch_all_fail(self, mock_run):
@@ -504,20 +503,25 @@ class TestSnmpCollector:
 
     @patch("sensors2mqtt.collector.snmp.subprocess.run")
     def test_poll_switch_partial_failure(self, mock_run):
-        call_count = [0]
+        """A failed fan walk still yields temperature and PSU values."""
+        thermal = (FIXTURES / "snmpwalk_m4300_thermal.txt").read_text()
+        psu = (FIXTURES / "snmpwalk_m4300_psu.txt").read_text()
 
         def side_effect(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] == 1:
+            oid = args[0][-1]
+            if oid.endswith(".6.1.4"):
                 return MagicMock(returncode=1, stdout="", stderr="Timeout")
-            return MagicMock(returncode=0, stdout='iso.3.6.1... = INTEGER: 65\n', stderr="")
+            if oid.endswith(".15.1.3"):
+                return MagicMock(returncode=0, stdout=thermal, stderr="")
+            if oid.endswith(".8.1.5"):
+                return MagicMock(returncode=0, stdout=psu, stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
 
         mock_run.side_effect = side_effect
         sw = _make_switch("test-m4300", "m4300")
         collector = self.make_collector(switches=[sw])
         values = collector.poll_switch(sw)
-        assert values is not None
-        assert len(values) < len(sw.sensors)
+        assert values == {"temp": 65, "psu_power": 65}
 
     @patch("sensors2mqtt.collector.snmp.subprocess.run")
     def test_poll_walk_switch(self, mock_run):
@@ -638,12 +642,14 @@ class TestSnmpCollector:
         )
         assert {s.suffix for s in later} == {"psu_power", "psu_power2"}
 
-    def test_get_sensors_for_switch_static(self):
+    def test_get_sensors_for_switch_m4300(self):
+        """MODELS wiring feeds walk-discovered values into discovery defs."""
         sw = _make_switch("test-m4300", "m4300")
         collector = self.make_collector(switches=[sw])
-        values = {"fan1_rpm": 5280, "fan2_rpm": 4560, "temp": 65, "psu_power": 65}
+        values = {"fan1_rpm": 5280, "fan2_rpm": 4560, "temp": 65,
+                  "psu_power": 65}
         sensors = collector.get_sensors_for_switch(sw, values)
-        assert len(sensors) == len(sw.sensors)
+        assert {s.suffix for s in sensors} == set(values)
 
     def test_get_sensors_excludes_walk_sensors(self):
         """Walk sensors (PoE) are NOT in hardware discovery — they're on per-port sub-devices."""
@@ -651,8 +657,8 @@ class TestSnmpCollector:
         collector = self.make_collector(switches=[sw])
         values = {"port01_poe_mw": 3300, "port05_poe_mw": 5600}
         sensors = collector.get_sensors_for_switch(sw, values)
-        # GSM7252PS has no static snmpget sensors, only walk sensors
-        # Walk sensors are excluded → empty list
+        # Values contain only PoE keys — no box suffixes were discovered,
+        # and PoE walk sensors are per-port sub-devices, not switch-level
         assert len(sensors) == 0
 
     def test_topics(self):
