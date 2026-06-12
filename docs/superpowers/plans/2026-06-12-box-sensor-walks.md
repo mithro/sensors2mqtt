@@ -1,6 +1,6 @@
 # Walk-Discovered boxServices Sensors Implementation Plan
 
-> **STATUS: READY (2026-06-12)** — the prerequisite `2026-06-12-snmp-control-dead-code-cleanup.md` is COMPLETE (commits 50fc6a5..acf3a26). All line-number anchors in this plan were re-verified against the post-cleanup files on 2026-06-12 and are unchanged (the cleanup's edits were same-size line replacements). Baseline: 247 tests passing, lint clean.
+> **STATUS: COMPLETE (2026-06-12)** — executed on branch box-sensor-walks as commits c43a039..da2bcdf (10c1397 is the model flip). Final review: READY TO MERGE. 271 tests passing.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -33,7 +33,7 @@ GSM7252PS live values (gsm7252ps-s1): fans 3500/3450 RPM, PSU rails 53/34/36/35 
 - Modify: `src/sensors2mqtt/collector/snmp.py` (add function after `parse_snmpwalk`, ~line 391)
 - Test: `tests/test_snmp.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_snmp.py` after class `TestParseSnmpwalk`. Also add `parse_box_walk` to the existing `from sensors2mqtt.collector.snmp import (...)` block at the top of the file (keep the list alphabetically sorted).
 
@@ -91,12 +91,12 @@ class TestParseBoxWalk:
         assert parse_box_walk("", self.BASE) == []
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_snmp.py::TestParseBoxWalk -v`
 Expected: FAIL — `ImportError: cannot import name 'parse_box_walk'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Add to `src/sensors2mqtt/collector/snmp.py` directly after `parse_snmpwalk()` (after line 390):
 
@@ -135,17 +135,17 @@ def parse_box_walk(output: str, base_oid: str) -> list[tuple[str, str]]:
     return results
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_snmp.py::TestParseBoxWalk -v`
 Expected: 8 PASS
 
-- [ ] **Step 5: Run full suite and lint**
+- [x] **Step 5: Run full suite and lint**
 
 Run: `uv run pytest && uv run ruff check src/ tests/`
 Expected: all pass, no lint errors
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/sensors2mqtt/collector/snmp.py tests/test_snmp.py
@@ -162,7 +162,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Modify: `src/sensors2mqtt/collector/snmp.py` (add after `parse_box_walk` from Task 1)
 - Test: `tests/test_snmp.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_snmp.py` after `TestParseBoxWalk`. Add `box_entity` to the import block.
 
@@ -187,12 +187,12 @@ class TestBoxEntity:
         assert box_entity("psu_power", 3) == ("psu_power4", "PSU Power 4")
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_snmp.py::TestBoxEntity -v`
 Expected: FAIL — `ImportError: cannot import name 'box_entity'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Add to `src/sensors2mqtt/collector/snmp.py` after `parse_box_walk()`:
 
@@ -220,12 +220,12 @@ def box_entity(kind: str, ordinal: int) -> tuple[str, str]:
     return f"{kind}{ordinal + 1}", f"{label} {ordinal + 1}"
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_snmp.py::TestBoxEntity -v`
 Expected: 5 PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/sensors2mqtt/collector/snmp.py tests/test_snmp.py
@@ -244,7 +244,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 No model uses `box_walks` yet — `MODELS` is flipped in Task 6. Everything stays green.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_snmp.py` after `TestBoxEntity`. Add `_box_walks` to the import block — ruff's isort rule (`I`) is enabled, so after Tasks 1-3 the complete block must read exactly:
 
@@ -297,12 +297,12 @@ class TestBoxWalks:
         assert sw.box_walks == []
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_snmp.py::TestBoxWalks -v`
 Expected: FAIL — `ImportError: cannot import name '_box_walks'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 In `src/sensors2mqtt/collector/snmp.py`, add the dataclass after `WalkSensorDef` (before `SwitchModel`):
 
@@ -370,12 +370,12 @@ In `tests/test_snmp.py`, add to `_make_switch()` after `walk_sensors=list(model.
         box_walks=list(model.box_walks),
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_snmp.py -v`
 Expected: all PASS (new TestBoxWalks plus all pre-existing tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/sensors2mqtt/collector/snmp.py tests/test_snmp.py
@@ -394,7 +394,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Modify: `src/sensors2mqtt/collector/snmp.py:530-584` (`poll_switch`)
 - Test: `tests/test_snmp.py`
 
-- [ ] **Step 1: Create the GSM7252PS fixtures**
+- [x] **Step 1: Create the GSM7252PS fixtures**
 
 These are reconstructed from the live values recorded in `docs/gdoc2netcfg-snmp-cross-check.md` (gsm7252ps-s1, 2026-06-11), in the format snmpwalk prints.
 
@@ -415,7 +415,7 @@ iso.3.6.1.4.1.4526.10.43.1.8.1.5.1.2 = INTEGER: 36
 iso.3.6.1.4.1.4526.10.43.1.8.1.5.1.3 = INTEGER: 35
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Add helpers to `tests/test_snmp.py` after `_make_switch()`, and `import logging` at the top of the file (with the other stdlib imports):
 
@@ -518,12 +518,12 @@ Add tests inside `class TestSnmpCollector` (after `test_poll_walk_switch`):
         assert values == {"psu_power": 65}
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_snmp.py -k "test_poll_box" -v`
 Expected: 4 FAIL — `poll_switch` returns `None` (box walks not polled yet)
 
-- [ ] **Step 4: Write the implementation**
+- [x] **Step 4: Write the implementation**
 
 In `poll_switch()` in `src/sensors2mqtt/collector/snmp.py`, insert between the static-sensor snmpget loop and the `# snmpwalk-based sensors` loop (after line 554):
 
@@ -574,12 +574,12 @@ In `poll_switch()` in `src/sensors2mqtt/collector/snmp.py`, insert between the s
                             switch.name, box.base_oid, e)
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_snmp.py -v`
 Expected: all PASS (pre-existing `test_poll_switch_*` tests still pass — `MODELS` is unchanged, so m4300 still polls via static sensors)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add tests/fixtures/snmpwalk_gsm7252ps_fans.txt \
@@ -603,7 +603,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 **Why incremental:** discovery defs are now derived from polled values. With the old once-per-startup gating, a transient walk failure on the *first* poll (e.g. the PSU walk times out once) would permanently suppress those entities' discovery until process restart, while their values still flow into the state blob. Instead, track announced suffixes per switch and publish discovery for any suffix not yet seen.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add inside `class TestSnmpCollector`:
 
@@ -643,12 +643,12 @@ Add inside `class TestSnmpCollector`:
         assert {s.suffix for s in later} == {"psu_power", "psu_power2"}
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_snmp.py::TestSnmpCollector::test_get_sensors_for_switch_box tests/test_snmp.py::TestSnmpCollector::test_new_sensor_defs_incremental -v`
 Expected: FAIL — `assert set() == {...}` (no box sensors generated) and `AttributeError: 'SnmpCollector' object has no attribute 'new_sensor_defs'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 In `get_sensors_for_switch()`, append before `return sensors` (after the static-sensor loop). Also update the method docstring's first line block: replace
 
@@ -712,7 +712,7 @@ And add this method directly after `get_sensors_for_switch()`:
         return new
 ```
 
-- [ ] **Step 4: Switch `main()` to incremental hardware discovery**
+- [x] **Step 4: Switch `main()` to incremental hardware discovery**
 
 In `main()`, replace the whole once-per-startup discovery block (currently `# Publish discovery (once per startup)` through `discovery_published.add(switch.node_id)`, ~lines 1049-1077):
 
@@ -785,12 +785,12 @@ with:
 
 (`get_device_info()` is now only called when there are new hw sensors to announce — it lazily fetches and caches the bridge MAC, and `_publish_port_discovery()` builds its own per-port devices, so the port block doesn't need it.)
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_snmp.py -v`
 Expected: all PASS (`test_get_sensors_for_switch_static` and `test_get_sensors_excludes_walk_sensors` still pass — current `MODELS` entries have no `box_walks`)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/sensors2mqtt/collector/snmp.py tests/test_snmp.py
@@ -814,7 +814,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 This task flips behaviour and updates tests in lockstep; the commit at the end is the only safe stopping point.
 
-- [ ] **Step 1: Update the model definition tests**
+- [x] **Step 1: Update the model definition tests**
 
 In `tests/test_snmp.py`, replace the entire `TestModelDefinitions` class with:
 
@@ -864,7 +864,7 @@ class TestModelDefinitions:
             assert ".4526.10." in box.base_oid
 ```
 
-- [ ] **Step 2: Update the config-loading test**
+- [x] **Step 2: Update the config-loading test**
 
 Replace `test_config_sensors_populated` in `TestConfigLoading` with:
 
@@ -879,7 +879,7 @@ Replace `test_config_sensors_populated` in `TestConfigLoading` with:
         assert len(by_name["test-s3300"].walk_sensors) >= 1
 ```
 
-- [ ] **Step 3: Update the collector tests that relied on static sensors**
+- [x] **Step 3: Update the collector tests that relied on static sensors**
 
 In `TestSnmpCollector`, replace `test_poll_switch_success` with a fixture-driven version (the old mock returned one snmpget line for every call, which no longer matches any poll the m4300 makes):
 
@@ -956,7 +956,7 @@ to:
 
 Leave `test_poll_switch_all_fail`, `test_poll_switch_timeout`, and `test_poll_walk_switch` untouched — they remain correct: all-fail/timeout still yield `None` (three failed walks), and in `test_poll_walk_switch` the box walks receive PoE-OID output that `parse_box_walk`'s prefix filter rejects, so only the PoE assertions matter.
 
-- [ ] **Step 4: Run tests to verify the new expectations fail**
+- [x] **Step 4: Run tests to verify the new expectations fail**
 
 Run: `uv run pytest tests/test_snmp.py -v`
 Expected: exactly 6 FAIL — `test_m4300_model` (`m.sensors` is not empty / no `box_walks`), `test_gsm7252ps_model` and `test_s3300_model` (their `{b.kind for b in m.box_walks}` assertions see empty `box_walks`), `test_config_box_walks_populated`, `test_poll_switch_success` (static snmpgets fall through the walk side-effect to empty output → `None`), and `test_poll_switch_partial_failure` (same reason).
@@ -965,7 +965,7 @@ NOT failing at this point, by design — don't be surprised:
 - `test_get_sensors_for_switch_m4300` PASSES pre-flip too: m4300's static suffixes are exactly `fan1_rpm/fan2_rpm/temp/psu_power`, which equals the test's `values` keys.
 - `test_s3300_uses_dot11_oids`, `test_m4300_uses_dot10_oids`, and `test_gsm7252ps_uses_dot10_oids` pass vacuously pre-flip (`box_walks` is empty, so their box loops don't execute; the `walk_sensors` loop in `test_s3300_uses_dot11_oids` passes legitimately); they only become meaningful after Step 5.
 
-- [ ] **Step 5: Flip the models**
+- [x] **Step 5: Flip the models**
 
 In `src/sensors2mqtt/collector/snmp.py`:
 
@@ -1004,12 +1004,12 @@ MODELS: dict[str, SwitchModel] = {
 
 Note on ordering: Task 3 placed `_box_walks()` directly after `_poe_walk()` (line ~193), which sits above `MODELS` (line ~208) — so `_box_walks` is already defined before this reference. No move needed; just confirm visually.
 
-- [ ] **Step 6: Run full suite and lint**
+- [x] **Step 6: Run full suite and lint**
 
 Run: `uv run pytest && uv run ruff check src/ tests/`
 Expected: all PASS, no lint errors. Do NOT remove `parse_snmpget_value` (used by `snmp_control.py`'s `_snmpget_int()`), `parse_snmpwalk` (used by `snmp_control.py`'s `poll_all_ports()` and `snmp.py`'s own table walks), or `SnmpSensor`/`snmpget_value` (used by `snmp.py`'s static-sensor poll loop, kept as the extension point for future single-OID sensors).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/sensors2mqtt/collector/snmp.py tests/test_snmp.py
@@ -1031,7 +1031,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Modify: `CLAUDE.md` (Supported Switch Models table + Key Design Decisions)
 - Modify: `docs/gdoc2netcfg-snmp-cross-check.md` (status note)
 
-- [ ] **Step 1: Update CLAUDE.md**
+- [x] **Step 1: Update CLAUDE.md**
 
 In the Supported Switch Models table, replace the GSM7252PS row:
 
@@ -1054,7 +1054,7 @@ In Key Design Decisions, after the line `- Switch sensor definitions are Python 
   "Not Supported" placeholder, and has 4 PSU rails)
 ```
 
-- [ ] **Step 2: Update the cross-check doc**
+- [x] **Step 2: Update the cross-check doc**
 
 In `docs/gdoc2netcfg-snmp-cross-check.md`, immediately after the `## Gaps found in this repo's collection` heading and its "Verified against live walks..." paragraph, add:
 
@@ -1067,7 +1067,7 @@ In `docs/gdoc2netcfg-snmp-cross-check.md`, immediately after the `## Gaps found 
 > per-supply rails).
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add CLAUDE.md docs/gdoc2netcfg-snmp-cross-check.md
@@ -1080,17 +1080,17 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ### Task 8: Final verification
 
-- [ ] **Step 1: Full test suite**
+- [x] **Step 1: Full test suite**
 
 Run: `uv run pytest -v`
 Expected: all tests PASS, including the unchanged non-SNMP suites (local collectors, IPMI, discovery, snmp_control)
 
-- [ ] **Step 2: Lint**
+- [x] **Step 2: Lint**
 
 Run: `uv run ruff check src/ tests/`
 Expected: no errors
 
-- [ ] **Step 3: Confirm working tree is clean**
+- [x] **Step 3: Confirm working tree is clean**
 
 Run: `git status`
 Expected: nothing to commit, working tree clean (all work committed in Tasks 1-7)
