@@ -6,7 +6,7 @@
 
 **Goal:** Replace hardcoded per-instance boxServices snmpget OIDs (fans/temperature/PSU) with subtree walks that discover instances dynamically, closing the three gaps in `docs/gdoc2netcfg-snmp-cross-check.md` (GSM7252PS box sensors not collected; hardcoded instance indexing; only first PSU rail read).
 
-**Architecture:** A new `BoxWalkDef` describes one boxServices value column to walk (`{base}.6.1.4` fans, `{base}.15.1.3` temperature, `{base}.8.1.5` PSU). A new parser `parse_box_walk()` extracts the *full* OID instance suffix relative to the base (e.g. `"1.0"`, `"0"`, `"1.3"`) — the existing `parse_snmpwalk()` keeps only the last component and would collide PSU rails. Discovered instances are sorted numerically and mapped to stable HA suffixes by `box_entity()` so existing entity IDs (`fan1_rpm`, `temp`, `psu_power`) are preserved. The literal `"Not Supported"` marker (a placeholder Netgear's FASTPATH firmware returns for absent sensors, e.g. the GSM7252PS middle fan slot) is skipped silently; any other non-integer value logs a warning instead of silently disappearing.
+**Architecture:** A new `BoxWalkDef` describes one boxServices value column to walk (`{base}.6.1.4` fans, `{base}.15.1.3` temperature, `{base}.8.1.5` PSU). A new parser `parse_box_walk()` extracts the *full* OID instance suffix relative to the base (e.g. `"1.0"`, `"0"`, `"1.3"`) — the existing `parse_snmpwalk()` keeps only the last component, which collapses stacked-unit instances (a 2-unit stack's fans `1.0` and `2.0` would both become `0`) and discards the instance structure the ordinal mapping sorts on. Discovered instances are sorted numerically and mapped to stable HA suffixes by `box_entity()` so existing entity IDs (`fan1_rpm`, `temp`, `psu_power`) are preserved. The literal `"Not Supported"` marker (a placeholder Netgear's FASTPATH firmware returns for absent sensors, e.g. the GSM7252PS middle fan slot) is skipped silently; any other non-integer value logs a warning instead of silently disappearing. HA discovery for hardware sensors becomes **incremental per suffix** (Task 5): a sensor first seen on a later poll (e.g. after a transient walk failure on startup) still gets its discovery published, instead of being suppressed until process restart.
 
 **Tech Stack:** Python 3.11+, subprocess `snmpwalk`, pytest with fixture files, paho-mqtt v2. All commands via `uv run`.
 
@@ -107,8 +107,9 @@ def parse_box_walk(output: str, base_oid: str) -> list[tuple[str, str]]:
     The instance is the full OID suffix relative to base_oid — e.g. "1.0"
     (unit 1, fan 0) on an M4300, or "0" on a GSM7252PS, whose fan table is
     indexed by a single component. Unlike parse_snmpwalk(), the suffix is
-    kept whole: the GSM7252PS exposes PSU rails "1.0"-"1.3" that would
-    collide if reduced to their last component.
+    kept whole: last-component parsing would collapse stacked-unit
+    instances (fans "1.0" and "2.0" both become 0) and discard the
+    structure used to order instances.
 
     snmpwalk prints the leading OID arc as "iso" instead of "1", so the
     OID is normalised before the prefix comparison. Lines outside
@@ -196,7 +197,9 @@ Expected: FAIL — `ImportError: cannot import name 'box_entity'`
 Add to `src/sensors2mqtt/collector/snmp.py` after `parse_box_walk()`:
 
 ```python
-_BOX_KIND_LABELS = {"fan": "Fan", "temp": "Temperature", "psu_power": "PSU Power"}
+# Labels for the kinds that reach the dict lookup — "fan" returns early
+# in box_entity() with its own numbered suffix scheme.
+_BOX_KIND_LABELS = {"temp": "Temperature", "psu_power": "PSU Power"}
 
 
 def box_entity(kind: str, ordinal: int) -> tuple[str, str]:
@@ -347,6 +350,12 @@ Add the field to **both** `SwitchModel` and `SwitchConfig`, after their `walk_se
 
 ```python
     box_walks: list[BoxWalkDef] = field(default_factory=list)
+```
+
+Also add the matching line to `SwitchConfig`'s `Attributes:` docstring list (after the `walk_sensors:` line):
+
+```
+        box_walks: List of boxServices walk defs (from model).
 ```
 
 In `load_config()`, add to the `SwitchConfig(...)` construction after `walk_sensors=list(model.walk_sensors),`:
@@ -586,13 +595,15 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 5: Discovery for walk-discovered sensors
+### Task 5: Discovery for walk-discovered sensors (incremental per suffix)
 
 **Files:**
-- Modify: `src/sensors2mqtt/collector/snmp.py:831-852` (`get_sensors_for_switch`)
+- Modify: `src/sensors2mqtt/collector/snmp.py:831-852` (`get_sensors_for_switch`), `__init__` (~line 511-528), `main()` discovery block (~line 1049-1077)
 - Test: `tests/test_snmp.py`
 
-- [ ] **Step 1: Write the failing test**
+**Why incremental:** discovery defs are now derived from polled values. With the old once-per-startup gating, a transient walk failure on the *first* poll (e.g. the PSU walk times out once) would permanently suppress those entities' discovery until process restart, while their values still flow into the state blob. Instead, track announced suffixes per switch and publish discovery for any suffix not yet seen.
+
+- [ ] **Step 1: Write the failing tests**
 
 Add inside `class TestSnmpCollector`:
 
@@ -615,12 +626,27 @@ Add inside `class TestSnmpCollector`:
         assert by_suffix["psu_power2"].device_class == "power"
         for s in sensors:
             assert s.state_class == "measurement"
+
+    def test_new_sensor_defs_incremental(self):
+        """Sensors first seen on a later poll still get discovery defs."""
+        sw = _box_test_switch()
+        collector = self.make_collector(switches=[sw])
+        first = collector.new_sensor_defs(sw, {"fan1_rpm": 3500, "temp": 40})
+        assert {s.suffix for s in first} == {"fan1_rpm", "temp"}
+        # Same values again: nothing new to announce
+        assert collector.new_sensor_defs(sw, {"fan1_rpm": 3500, "temp": 40}) == []
+        # PSU walk recovers on a later poll: only the new suffixes returned
+        later = collector.new_sensor_defs(
+            sw,
+            {"fan1_rpm": 3500, "temp": 40, "psu_power": 53, "psu_power2": 34},
+        )
+        assert {s.suffix for s in later} == {"psu_power", "psu_power2"}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify they fail**
 
-Run: `uv run pytest tests/test_snmp.py::TestSnmpCollector::test_get_sensors_for_switch_box -v`
-Expected: FAIL — `assert set() == {...}` (no box sensors generated)
+Run: `uv run pytest tests/test_snmp.py::TestSnmpCollector::test_get_sensors_for_switch_box tests/test_snmp.py::TestSnmpCollector::test_new_sensor_defs_incremental -v`
+Expected: FAIL — `assert set() == {...}` (no box sensors generated) and `AttributeError: 'SnmpCollector' object has no attribute 'new_sensor_defs'`
 
 - [ ] **Step 3: Write the implementation**
 
@@ -660,16 +686,120 @@ New code before `return sensors`:
                 ordinal += 1
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+Then add the suffix-tracking state in `SnmpCollector.__init__()` (after the `self._switch_macs` line, ~line 526):
+
+```python
+        # Suffixes already announced via HA discovery: {node_id: {suffix}}
+        self._published_suffixes: dict[str, set[str]] = {}
+```
+
+And add this method directly after `get_sensors_for_switch()`:
+
+```python
+    def new_sensor_defs(self, switch: SwitchConfig, values: dict) -> list[SensorDef]:
+        """Return defs for hardware sensors not yet announced for this switch.
+
+        Discovery is published incrementally: a walk-discovered sensor can
+        first appear on a later poll (e.g. after a transient walk failure
+        on startup), and HA needs its discovery published exactly once.
+        """
+        done = self._published_suffixes.setdefault(switch.node_id, set())
+        new = [
+            s for s in self.get_sensors_for_switch(switch, values)
+            if s.suffix not in done
+        ]
+        done.update(s.suffix for s in new)
+        return new
+```
+
+- [ ] **Step 4: Switch `main()` to incremental hardware discovery**
+
+In `main()`, replace the whole once-per-startup discovery block (currently `# Publish discovery (once per startup)` through `discovery_published.add(switch.node_id)`, ~lines 1049-1077):
+
+```python
+                # Publish discovery (once per startup)
+                if switch.node_id not in discovery_published:
+                    device = collector.get_device_info(switch)
+
+                    # Hardware sensor discovery (fans, temp, PSU)
+                    if hw_values:
+                        hw_sensors = collector.get_sensors_for_switch(switch, hw_values)
+                        hw_state = collector.state_topic(switch)
+                        hw_count = publish_discovery(
+                            client, hw_sensors, device, hw_state, avail,
+                        )
+                        log.info(
+                            "%s: published discovery for %d hardware sensors",
+                            switch.name, hw_count,
+                        )
+
+                    # Per-port discovery (each port is a sub-device)
+                    if switch.port_count > 0:
+                        chassis_macs = fetch_lldp_chassis_macs(switch)
+                        port_count = _publish_port_discovery(
+                            client, switch, avail,
+                            chassis_macs=chassis_macs,
+                        )
+                        log.info(
+                            "%s: published discovery for %d port sensors",
+                            switch.name, port_count,
+                        )
+
+                    discovery_published.add(switch.node_id)
+```
+
+with:
+
+```python
+                # Hardware sensor discovery (fans, temp, PSU) — incremental:
+                # a walk-discovered sensor can first appear on a later poll
+                # (e.g. after a transient walk failure), so publish discovery
+                # for any suffix not yet announced rather than only once.
+                if hw_values:
+                    hw_sensors = collector.new_sensor_defs(switch, hw_values)
+                    if hw_sensors:
+                        device = collector.get_device_info(switch)
+                        hw_state = collector.state_topic(switch)
+                        hw_count = publish_discovery(
+                            client, hw_sensors, device, hw_state, avail,
+                        )
+                        log.info(
+                            "%s: published discovery for %d hardware sensors",
+                            switch.name, hw_count,
+                        )
+
+                # Per-port discovery (once per startup; each port is a sub-device)
+                if switch.node_id not in discovery_published:
+                    if switch.port_count > 0:
+                        chassis_macs = fetch_lldp_chassis_macs(switch)
+                        port_count = _publish_port_discovery(
+                            client, switch, avail,
+                            chassis_macs=chassis_macs,
+                        )
+                        log.info(
+                            "%s: published discovery for %d port sensors",
+                            switch.name, port_count,
+                        )
+                    discovery_published.add(switch.node_id)
+```
+
+(`get_device_info()` is now only called when there are new hw sensors to announce — it lazily fetches and caches the bridge MAC, and `_publish_port_discovery()` builds its own per-port devices, so the port block doesn't need it.)
+
+- [ ] **Step 5: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_snmp.py -v`
 Expected: all PASS (`test_get_sensors_for_switch_static` and `test_get_sensors_excludes_walk_sensors` still pass — current `MODELS` entries have no `box_walks`)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/sensors2mqtt/collector/snmp.py tests/test_snmp.py
-git commit -m "feat(snmp): publish HA discovery for walk-discovered box sensors
+git commit -m "feat(snmp): incremental HA discovery for walk-discovered box sensors
+
+Discovery defs are derived from polled values, so announce each suffix
+the first time it is seen rather than once per startup — a transient
+walk failure on the first poll no longer suppresses entities until
+restart.
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
@@ -829,7 +959,11 @@ Leave `test_poll_switch_all_fail`, `test_poll_switch_timeout`, and `test_poll_wa
 - [ ] **Step 4: Run tests to verify the new expectations fail**
 
 Run: `uv run pytest tests/test_snmp.py -v`
-Expected: FAIL — `test_m4300_model` (`m.sensors` is not empty / no `box_walks`), `test_config_box_walks_populated`, `test_poll_switch_success`, `test_get_sensors_for_switch_m4300`, and the gsm7252ps/s3300 model tests
+Expected: exactly 6 FAIL — `test_m4300_model` (`m.sensors` is not empty / no `box_walks`), `test_gsm7252ps_model` and `test_s3300_model` (their `{b.kind for b in m.box_walks}` assertions see empty `box_walks`), `test_config_box_walks_populated`, `test_poll_switch_success` (static snmpgets fall through the walk side-effect to empty output → `None`), and `test_poll_switch_partial_failure` (same reason).
+
+NOT failing at this point, by design — don't be surprised:
+- `test_get_sensors_for_switch_m4300` PASSES pre-flip too: m4300's static suffixes are exactly `fan1_rpm/fan2_rpm/temp/psu_power`, which equals the test's `values` keys.
+- `test_s3300_uses_dot11_oids`, `test_m4300_uses_dot10_oids`, and `test_gsm7252ps_uses_dot10_oids` pass vacuously pre-flip (`box_walks` is empty, so their box loops don't execute; the `walk_sensors` loop in `test_s3300_uses_dot11_oids` passes legitimately); they only become meaningful after Step 5.
 
 - [ ] **Step 5: Flip the models**
 
