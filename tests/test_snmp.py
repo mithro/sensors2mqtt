@@ -46,8 +46,8 @@ def _make_switch(name: str, model_name: str) -> SwitchConfig:
     )
 
 
-def _box_test_switch() -> SwitchConfig:
-    """A switch with only box walks (FM OID base), independent of MODELS."""
+def _box_test_switch(base: str | None = None) -> SwitchConfig:
+    """A switch with only box walks (FM OID base by default), independent of MODELS."""
     from sensors2mqtt.collector.snmp import _FM_BOX
     return SwitchConfig(
         node_id="test_box",
@@ -56,7 +56,7 @@ def _box_test_switch() -> SwitchConfig:
         community="public",
         manufacturer="Netgear",
         model="TEST",
-        box_walks=_box_walks(_FM_BOX),
+        box_walks=_box_walks(base if base is not None else _FM_BOX),
     )
 
 
@@ -651,6 +651,23 @@ class TestSnmpCollector:
         }
         # The "Not Supported" placeholder is expected hardware, not an error
         assert not any("non-integer" in r.getMessage() for r in caplog.records)
+
+    @patch("sensors2mqtt.collector.snmp.subprocess.run")
+    def test_poll_box_sensors_s3300_layout(self, mock_run):
+        """Smart Managed Pro (4526.11) walks: 3 fans, temp, single PSU rail."""
+        from sensors2mqtt.collector.snmp import _SMP_BOX
+        mock_run.side_effect = _box_walk_side_effect({
+            ".6.1.4": (FIXTURES / "snmpwalk_s3300_fans.txt").read_text(),
+            ".15.1.3": (FIXTURES / "snmpwalk_s3300_thermal.txt").read_text(),
+            ".8.1.5": (FIXTURES / "snmpwalk_s3300_psu.txt").read_text(),
+        })
+        sw = _box_test_switch(_SMP_BOX)
+        collector = self.make_collector(switches=[sw])
+        values = collector.poll_switch(sw)
+        assert values == {
+            "fan1_rpm": 5018, "fan2_rpm": 5273, "fan3_rpm": 5357,
+            "temp": 56, "psu_power": 56,
+        }
 
     @patch("sensors2mqtt.collector.snmp.subprocess.run")
     def test_poll_box_warns_on_unexpected_string(self, mock_run, caplog):
