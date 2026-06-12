@@ -4,7 +4,7 @@ VENV_BIN := $(VENV)/bin
 # Create venv and install project with dev dependencies.
 # Re-runs when pyproject.toml changes.
 $(VENV)/.stamp: pyproject.toml
-	uv sync --dev
+	uv sync --dev --all-extras
 	touch $@
 
 .PHONY: help
