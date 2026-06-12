@@ -424,6 +424,29 @@ def parse_box_walk(output: str, base_oid: str) -> list[tuple[str, str]]:
     return results
 
 
+# Labels for the kinds that reach the dict lookup — "fan" returns early
+# in box_entity() with its own numbered suffix scheme.
+_BOX_KIND_LABELS = {"temp": "Temperature", "psu_power": "PSU Power"}
+
+
+def box_entity(kind: str, ordinal: int) -> tuple[str, str]:
+    """Map a discovered box sensor (kind, ordinal) to its (suffix, name).
+
+    ordinal is the 0-based position in instance-sorted order. Suffixes are
+    HA unique_id components and must stay stable across releases — renaming
+    one orphans the entity's recorded history. Fans have always been
+    numbered (fan1_rpm); the first temperature/PSU sensor keeps its historic
+    unnumbered suffix ("temp", "psu_power") and only extra instances (e.g.
+    the GSM7252PS's additional PSU rails) get numbered ones.
+    """
+    if kind == "fan":
+        return f"fan{ordinal + 1}_rpm", f"Fan {ordinal + 1}"
+    label = _BOX_KIND_LABELS[kind]
+    if ordinal == 0:
+        return kind, label
+    return f"{kind}{ordinal + 1}", f"{label} {ordinal + 1}"
+
+
 def parse_lldp_walk(output: str, field_oid: str) -> dict[int, str]:
     """Parse LLDP remote table walk output into {local_port: value}.
 

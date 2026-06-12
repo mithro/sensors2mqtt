@@ -9,6 +9,7 @@ from sensors2mqtt.collector.snmp import (
     MODELS,
     SnmpCollector,
     SwitchConfig,
+    box_entity,
     load_config,
     parse_box_walk,
     parse_hex_mac,
@@ -155,6 +156,26 @@ class TestParseBoxWalk:
 
     def test_empty_output(self):
         assert parse_box_walk("", self.BASE) == []
+
+
+class TestBoxEntity:
+    def test_fans_are_numbered_from_one(self):
+        assert box_entity("fan", 0) == ("fan1_rpm", "Fan 1")
+        assert box_entity("fan", 1) == ("fan2_rpm", "Fan 2")
+        assert box_entity("fan", 2) == ("fan3_rpm", "Fan 3")
+
+    def test_first_temp_keeps_historic_suffix(self):
+        assert box_entity("temp", 0) == ("temp", "Temperature")
+
+    def test_extra_temp_numbered(self):
+        assert box_entity("temp", 1) == ("temp2", "Temperature 2")
+
+    def test_first_psu_keeps_historic_suffix(self):
+        assert box_entity("psu_power", 0) == ("psu_power", "PSU Power")
+
+    def test_extra_psu_rails_numbered(self):
+        assert box_entity("psu_power", 1) == ("psu_power2", "PSU Power 2")
+        assert box_entity("psu_power", 3) == ("psu_power4", "PSU Power 4")
 
 
 class TestSnmpgetValue:
