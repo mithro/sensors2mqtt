@@ -210,27 +210,6 @@ _SMP_BOX = "1.3.6.1.4.1.4526.11.43.1"
 _SMP_POE = "1.3.6.1.4.1.4526.11.15.1.1.1"
 
 
-def _box_sensors(base: str, num_fans: int) -> list[SnmpSensor]:
-    """Build boxServices sensor list for a given OID base and fan count."""
-    sensors = []
-    for i in range(num_fans):
-        sensors.append(SnmpSensor(
-            suffix=f"fan{i + 1}_rpm", name=f"Fan {i + 1}", unit="RPM", icon="mdi:fan",
-            oid=f"{base}.6.1.4.1.{i}", value_type="string_int",
-        ))
-    sensors.append(SnmpSensor(
-        suffix="temp", name="Temperature", unit="°C",
-        device_class="temperature",
-        oid=f"{base}.15.1.3.1",
-    ))
-    sensors.append(SnmpSensor(
-        suffix="psu_power", name="PSU Power", unit="W",
-        device_class="power",
-        oid=f"{base}.8.1.5.1.0",
-    ))
-    return sensors
-
-
 def _poe_walk(base: str) -> list[WalkSensorDef]:
     """Build PoE per-port walk sensor for a given OID base."""
     return [WalkSensorDef(
@@ -264,13 +243,14 @@ MODELS: dict[str, SwitchModel] = {
         model="M4300-24X",
         port_count=24,
         poe_port_count=0,
-        sensors=_box_sensors(_FM_BOX, num_fans=2),
+        box_walks=_box_walks(_FM_BOX),
     ),
     "gsm7252ps": SwitchModel(
         manufacturer="Netgear",
         model="GSM7252PS",
         port_count=52,
         poe_port_count=48,
+        box_walks=_box_walks(_FM_BOX),
         walk_sensors=_poe_walk(_FM_POE),
     ),
     "s3300": SwitchModel(
@@ -278,7 +258,7 @@ MODELS: dict[str, SwitchModel] = {
         model="GSM7228PS",
         port_count=52,
         poe_port_count=48,
-        sensors=_box_sensors(_SMP_BOX, num_fans=3),
+        box_walks=_box_walks(_SMP_BOX),
         walk_sensors=_poe_walk(_SMP_POE),
     ),
 }
