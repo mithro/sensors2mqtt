@@ -598,4 +598,3 @@ class TestDiscoveryShortNames:
         force_01 = [c for c in calls if "port01_poe_force" in str(c[0][0])]
         payload = json.loads(force_01[0][0][1])
         assert payload["name"] == "PoE Force"
-
