@@ -650,6 +650,51 @@ class SnmpCollector:
             except Exception as e:
                 log.warning("%s: snmpget %s error: %s", switch.name, sensor.suffix, e)
 
+        # Walk-discovered boxServices sensors (fans, temperature, PSU).
+        # Instances vary by model (see BoxWalkDef), so each value column is
+        # walked and whatever rows exist become sensors, in instance order.
+        for box in switch.box_walks:
+            try:
+                result = subprocess.run(
+                    ["snmpwalk", "-v2c", "-c", switch.community, switch.host,
+                     box.base_oid],
+                    capture_output=True, text=True, timeout=self._timeout * 3,
+                )
+                if result.returncode != 0:
+                    log.warning(
+                        "%s: snmpwalk %s (%s) failed: %s",
+                        switch.name, box.base_oid, box.kind,
+                        result.stderr.strip(),
+                    )
+                    continue
+                readings = []
+                for instance, raw in parse_box_walk(result.stdout, box.base_oid):
+                    if raw == "Not Supported":
+                        # Netgear's literal placeholder for an absent sensor
+                        # slot (e.g. the GSM7252PS middle fan) — not an error.
+                        continue
+                    try:
+                        value = int(raw)
+                    except ValueError:
+                        log.warning(
+                            "%s: non-integer %s reading %r at instance %s",
+                            switch.name, box.kind, raw, instance,
+                        )
+                        continue
+                    readings.append(
+                        (tuple(int(c) for c in instance.split(".")), value)
+                    )
+                readings.sort()
+                for ordinal, (_instance, value) in enumerate(readings):
+                    suffix, _name = box_entity(box.kind, ordinal)
+                    values[suffix] = value
+            except subprocess.TimeoutExpired:
+                log.warning("%s: snmpwalk %s timed out",
+                            switch.name, box.base_oid)
+            except Exception as e:
+                log.warning("%s: snmpwalk %s error: %s",
+                            switch.name, box.base_oid, e)
+
         # snmpwalk-based sensors
         for walk_def in switch.walk_sensors:
             try:

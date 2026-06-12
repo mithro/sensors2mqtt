@@ -1,5 +1,6 @@
 """Tests for SNMP collector."""
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -41,6 +42,31 @@ def _make_switch(name: str, model_name: str) -> SwitchConfig:
         walk_sensors=list(model.walk_sensors),
         box_walks=list(model.box_walks),
     )
+
+
+def _box_test_switch() -> SwitchConfig:
+    """A switch with only box walks (FM OID base), independent of MODELS."""
+    from sensors2mqtt.collector.snmp import _FM_BOX
+    return SwitchConfig(
+        node_id="test_box",
+        name="test-box",
+        host="test-box.test",
+        community="public",
+        manufacturer="Netgear",
+        model="TEST",
+        box_walks=_box_walks(_FM_BOX),
+    )
+
+
+def _box_walk_side_effect(responses: dict[str, str]):
+    """subprocess.run side effect: map walked-OID suffix -> stdout."""
+    def side_effect(*args, **kwargs):
+        oid = args[0][-1]
+        for suffix, text in responses.items():
+            if oid.endswith(suffix):
+                return MagicMock(returncode=0, stdout=text, stderr="")
+        return MagicMock(returncode=0, stdout="", stderr="")
+    return side_effect
 
 
 class TestParseSnmpgetValue:
@@ -508,6 +534,75 @@ class TestSnmpCollector:
         assert "port01_poe_mw" in values
         assert values["port01_poe_mw"] == 3300.0
         assert values["port05_poe_mw"] == 5600.0
+
+    @patch("sensors2mqtt.collector.snmp.subprocess.run")
+    def test_poll_box_sensors_m4300_layout(self, mock_run):
+        """Two-component instances (unit.fan) — suffix contract preserved."""
+        mock_run.side_effect = _box_walk_side_effect({
+            ".6.1.4": (FIXTURES / "snmpwalk_m4300_fans.txt").read_text(),
+            ".15.1.3": (FIXTURES / "snmpwalk_m4300_thermal.txt").read_text(),
+            ".8.1.5": (FIXTURES / "snmpwalk_m4300_psu.txt").read_text(),
+        })
+        sw = _box_test_switch()
+        collector = self.make_collector(switches=[sw])
+        values = collector.poll_switch(sw)
+        assert values == {
+            "fan1_rpm": 5280, "fan2_rpm": 4560, "temp": 65, "psu_power": 65,
+        }
+
+    @patch("sensors2mqtt.collector.snmp.subprocess.run")
+    def test_poll_box_sensors_gsm7252ps_layout(self, mock_run, caplog):
+        """Single-component fan instances, Not Supported slot, 4 PSU rails."""
+        mock_run.side_effect = _box_walk_side_effect({
+            ".6.1.4": (FIXTURES / "snmpwalk_gsm7252ps_fans.txt").read_text(),
+            ".8.1.5": (FIXTURES / "snmpwalk_gsm7252ps_psu.txt").read_text(),
+            # .15.1.3 (temp) falls through to empty output — the GSM7252PS
+            # exposes nothing readable there
+        })
+        sw = _box_test_switch()
+        collector = self.make_collector(switches=[sw])
+        with caplog.at_level(logging.WARNING):
+            values = collector.poll_switch(sw)
+        assert values == {
+            "fan1_rpm": 3500, "fan2_rpm": 3450,
+            "psu_power": 53, "psu_power2": 34,
+            "psu_power3": 36, "psu_power4": 35,
+        }
+        # The "Not Supported" placeholder is expected hardware, not an error
+        assert not any("non-integer" in r.getMessage() for r in caplog.records)
+
+    @patch("sensors2mqtt.collector.snmp.subprocess.run")
+    def test_poll_box_warns_on_unexpected_string(self, mock_run, caplog):
+        """Unknown non-integer values must be visible, not silently dropped."""
+        fans = (
+            'iso.3.6.1.4.1.4526.10.43.1.6.1.4.0 = STRING: "3500"\n'
+            'iso.3.6.1.4.1.4526.10.43.1.6.1.4.1 = STRING: "garbage"\n'
+        )
+        mock_run.side_effect = _box_walk_side_effect({".6.1.4": fans})
+        sw = _box_test_switch()
+        collector = self.make_collector(switches=[sw])
+        with caplog.at_level(logging.WARNING):
+            values = collector.poll_switch(sw)
+        assert values == {"fan1_rpm": 3500}
+        assert any("non-integer fan reading" in r.getMessage()
+                   for r in caplog.records)
+
+    @patch("sensors2mqtt.collector.snmp.subprocess.run")
+    def test_poll_box_walk_failure_skips_kind(self, mock_run):
+        """One failed walk doesn't lose the other kinds."""
+        psu = (FIXTURES / "snmpwalk_m4300_psu.txt").read_text()
+
+        def side_effect(*args, **kwargs):
+            oid = args[0][-1]
+            if oid.endswith(".8.1.5"):
+                return MagicMock(returncode=0, stdout=psu, stderr="")
+            return MagicMock(returncode=1, stdout="", stderr="Timeout")
+
+        mock_run.side_effect = side_effect
+        sw = _box_test_switch()
+        collector = self.make_collector(switches=[sw])
+        values = collector.poll_switch(sw)
+        assert values == {"psu_power": 65}
 
     def test_get_sensors_for_switch_static(self):
         sw = _make_switch("test-m4300", "m4300")
