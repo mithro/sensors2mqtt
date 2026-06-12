@@ -36,6 +36,13 @@ tables under `4526.{10,11}.43.1`) and stores all of it historically in its
 Verified against live walks of the production switches (welland,
 2026-06-11):
 
+> **Update 2026-06-12:** all three gaps below are fixed. boxServices
+> sensors are now walk-discovered (`_box_walks()` / `parse_box_walk()` in
+> `snmp.py`), the literal `"Not Supported"` marker is skipped, other
+> non-integer values log a warning, and all GSM7252PS PSU rails are
+> published (`psu_power` = rail `.0`, `psu_power2`-`psu_power4` = the
+> remaining rails).
+
 ### 1. GSM7252PS box sensors are not collected at all
 
 The `gsm7252ps` entry in `MODELS` (`snmp.py`) has `walk_sensors` (PoE) but no
