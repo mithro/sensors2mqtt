@@ -12,9 +12,6 @@ from sensors2mqtt.collector.snmp_control import (
     POE_DETECT_OID,
     PoeController,
     PortControlState,
-    extract_hostname,
-    fetch_lldp_neighbors,
-    fetch_port_descriptions,
 )
 
 
@@ -569,66 +566,7 @@ class TestPowerCycle:
 
 
 # ---------------------------------------------------------------------------
-# Hostname extraction tests
-# ---------------------------------------------------------------------------
-
-class TestExtractHostname:
-    def test_interface_dot_hostname(self):
-        """Standard ifAlias: 'eth0.rpi5-pmod' → 'rpi5-pmod'."""
-        assert extract_hostname("eth0.rpi5-pmod") == "rpi5-pmod"
-
-    def test_switch_port_format(self):
-        """Netgear switch port: '1/0/2.sw-netgear-m4300-24x' → 'sw-netgear-m4300-24x'."""
-        assert extract_hostname("1/0/2.sw-netgear-m4300-24x") == "sw-netgear-m4300-24x"
-
-    def test_no_dot_freeform(self):
-        """Freeform description without dot returns whole string."""
-        assert extract_hostname("rpi with rpiz and luna") == "rpi with rpiz and luna"
-
-    def test_lan_prefix(self):
-        """LAN interface prefix: 'lan.openmesh-96-00' → 'openmesh-96-00'."""
-        assert extract_hostname("lan.openmesh-96-00") == "openmesh-96-00"
-
-    def test_empty_string(self):
-        assert extract_hostname("") == ""
-
-
-# ---------------------------------------------------------------------------
-# Port description fetch tests
-# ---------------------------------------------------------------------------
-
-class TestFetchPortDescriptions:
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_parses_ifalias(self, mock_run):
-        """Parses standard snmpwalk ifAlias output."""
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=(
-                'IF-MIB::ifAlias.1 = STRING: "eth0.rpi5-pmod"\n'
-                'IF-MIB::ifAlias.2 = STRING: "eth0.rpi4-pmod"\n'
-                'IF-MIB::ifAlias.3 = STRING: ""\n'
-                'IF-MIB::ifAlias.5 = STRING: "rpi with rpiz and luna"\n'
-            ),
-            stderr="",
-        )
-        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
-        result = fetch_port_descriptions(sw)
-        assert result == {
-            1: "eth0.rpi5-pmod",
-            2: "eth0.rpi4-pmod",
-            5: "rpi with rpiz and luna",
-        }
-
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_empty_on_failure(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Timeout")
-        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
-        result = fetch_port_descriptions(sw)
-        assert result == {}
-
-
-# ---------------------------------------------------------------------------
-# Discovery with port descriptions tests
+# Discovery short-name tests
 # ---------------------------------------------------------------------------
 
 class TestDiscoveryShortNames:
@@ -660,33 +598,4 @@ class TestDiscoveryShortNames:
         force_01 = [c for c in calls if "port01_poe_force" in str(c[0][0])]
         payload = json.loads(force_01[0][0][1])
         assert payload["name"] == "PoE Force"
-
-
-# ---------------------------------------------------------------------------
-# LLDP fetch + combined hostname tests
-# ---------------------------------------------------------------------------
-
-class TestFetchLldpNeighbors:
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_parses_lldp_sysname(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=(
-                'iso.0.8802.1.1.2.1.4.1.1.9.0.1.1 = STRING: "rpi5-pmod.iot.example.com"\n'
-                'iso.0.8802.1.1.2.1.4.1.1.9.0.2.1 = STRING: "rpi4-pmod"\n'
-            ),
-            stderr="",
-        )
-        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
-        result = fetch_lldp_neighbors(sw)
-        assert result[1] == "rpi5-pmod"  # domain stripped
-        assert result[2] == "rpi4-pmod"
-
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_empty_on_failure(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Timeout")
-        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
-        result = fetch_lldp_neighbors(sw)
-        assert result == {}
-
 

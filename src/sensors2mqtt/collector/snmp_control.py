@@ -32,16 +32,11 @@ from sensors2mqtt.collector.snmp import (
     _build_port_device,
     fetch_lldp_chassis_macs,
     load_config,
-    parse_lldp_walk,
     parse_snmpget_value,
 )
 from sensors2mqtt.discovery import ORIGIN, device_dict
 
 log = logging.getLogger(__name__)
-
-# SNMP OIDs
-IF_ALIAS_OID = "1.3.6.1.2.1.31.1.1.1.18"          # ifAlias (port descriptions)
-LLDP_REM_OID = "1.0.8802.1.1.2.1.4.1.1"            # LLDP remote table base
 
 # SNMP OIDs for PoE control
 POE_ADMIN_OID = "1.3.6.1.2.1.105.1.1.1.3.1"   # pethPsePortAdminEnable (R/W)
@@ -52,84 +47,6 @@ IF_OPER_OID = "1.3.6.1.2.1.2.2.1.8"            # ifOperStatus (R)
 POE_ADMIN_MAP = {1: "enabled", 2: "disabled"}
 POE_DETECT_MAP = {1: "unused", 2: "searching", 3: "delivering", 4: "fault"}
 OPER_MAP = {1: "up", 2: "down"}
-
-
-def fetch_port_descriptions(switch: SwitchConfig, timeout: int = 30) -> dict[int, str]:
-    """Fetch port descriptions (ifAlias) from switch via SNMP walk.
-
-    Returns {port_number: description_string}.
-    """
-    descriptions: dict[int, str] = {}
-    try:
-        result = subprocess.run(
-            ["snmpwalk", "-v2c", "-c", switch.community, switch.host, IF_ALIAS_OID],
-            capture_output=True, text=True, timeout=timeout,
-        )
-        if result.returncode != 0:
-            log.warning("%s: ifAlias walk failed: %s", switch.name, result.stderr.strip())
-            return descriptions
-        for line in result.stdout.strip().splitlines():
-            m = re.match(r'.*\.(\d+)\s*=\s*STRING:\s*"(.+)"', line)
-            if not m:
-                continue
-            port = int(m.group(1))
-            alias = m.group(2).strip()
-            if alias:
-                descriptions[port] = alias
-    except subprocess.TimeoutExpired:
-        log.warning("%s: ifAlias walk timed out", switch.name)
-    except Exception as e:
-        log.warning("%s: ifAlias walk error: %s", switch.name, e)
-
-    if descriptions:
-        log.info("%s: fetched %d port descriptions", switch.name, len(descriptions))
-    return descriptions
-
-
-def extract_hostname(description: str) -> str:
-    """Extract the hostname portion from an ifAlias or LLDP description.
-
-    Convention: "interface.hostname" (e.g. "eth0.rpi5-pmod" → "rpi5-pmod").
-    If no dot separator, returns the whole description.
-    """
-    dot = description.find(".")
-    if dot >= 0:
-        return description[dot + 1:]
-    return description
-
-
-def fetch_lldp_neighbors(switch: SwitchConfig, timeout: int = 30) -> dict[int, str]:
-    """Fetch LLDP neighbor sysName per port from switch.
-
-    Returns {port_number: sys_name} with domain suffixes stripped.
-    """
-    sys_names: dict[int, str] = {}
-    try:
-        result = subprocess.run(
-            ["snmpwalk", "-v2c", "-c", switch.community, switch.host,
-             f"{LLDP_REM_OID}.9"],
-            capture_output=True, text=True, timeout=timeout,
-        )
-        if result.returncode != 0:
-            log.warning("%s: LLDP sysName walk failed: %s",
-                        switch.name, result.stderr.strip())
-            return sys_names
-        sys_names = parse_lldp_walk(result.stdout, "9")
-    except subprocess.TimeoutExpired:
-        log.warning("%s: LLDP sysName walk timed out", switch.name)
-    except Exception as e:
-        log.warning("%s: LLDP sysName walk error: %s", switch.name, e)
-
-    # Strip FQDN to short hostname
-    for port in sys_names:
-        sn = sys_names[port]
-        if "." in sn:
-            sys_names[port] = sn.split(".")[0]
-
-    if sys_names:
-        log.info("%s: fetched %d LLDP neighbors", switch.name, len(sys_names))
-    return sys_names
-
 
 
 @dataclass
@@ -520,7 +437,6 @@ class PoeController:
             port_device = _build_port_device(switch, port, chassis_macs)
             port_dev_dict = device_dict(port_device)
 
-            # Build host suffix for entity names
             # PoE Toggle (switch entity)
             # Short names — device name already identifies the port.
             toggle_config = {
