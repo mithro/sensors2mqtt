@@ -113,6 +113,30 @@ class WalkSensorDef:
 
 
 @dataclass(frozen=True)
+class BoxWalkDef:
+    """A Netgear boxServices value column to walk.
+
+    Instances are discovered from the walk rather than hardcoded because
+    indexing differs by model: the M4300/S3300 index fans as unit.fan
+    ("1.0"), the GSM7252PS as a bare fan number ("0"), and the GSM7252PS
+    exposes four PSU rails ("1.0"-"1.3") where the others have one.
+
+    Attributes:
+        kind: Sensor kind — "fan", "temp", or "psu_power" (see box_entity).
+        base_oid: The value column subtree to snmpwalk.
+        unit: Unit of measurement.
+        device_class: HA device class. None for RPM.
+        icon: MDI icon override. None uses default.
+    """
+
+    kind: str
+    base_oid: str
+    unit: str
+    device_class: str | None = None
+    icon: str | None = None
+
+
+@dataclass(frozen=True)
 class SwitchModel:
     """Hardware model definition — OID tables and sensor mappings.
 
@@ -126,6 +150,7 @@ class SwitchModel:
     poe_port_count: int = 0
     sensors: list[SnmpSensor] = field(default_factory=list)
     walk_sensors: list[WalkSensorDef] = field(default_factory=list)
+    box_walks: list[BoxWalkDef] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -141,6 +166,7 @@ class SwitchConfig:
         model: For HA device registry (from model).
         sensors: List of sensors to poll (from model).
         walk_sensors: List of walk sensor defs (from model).
+        box_walks: List of boxServices walk defs (from model).
     """
 
     node_id: str
@@ -154,6 +180,7 @@ class SwitchConfig:
     write_community: str | None = None
     sensors: list[SnmpSensor] = field(default_factory=list)
     walk_sensors: list[WalkSensorDef] = field(default_factory=list)
+    box_walks: list[BoxWalkDef] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +229,18 @@ def _poe_walk(base: str) -> list[WalkSensorDef]:
         max_index=48,
         index_width=2,
     )]
+
+
+def _box_walks(base: str) -> list[BoxWalkDef]:
+    """Build boxServices walk definitions for a given enterprise OID base."""
+    return [
+        BoxWalkDef(kind="fan", base_oid=f"{base}.6.1.4", unit="RPM",
+                   icon="mdi:fan"),
+        BoxWalkDef(kind="temp", base_oid=f"{base}.15.1.3", unit="°C",
+                   device_class="temperature"),
+        BoxWalkDef(kind="psu_power", base_oid=f"{base}.8.1.5", unit="W",
+                   device_class="power"),
+    ]
 
 
 # Known switch models — keyed by the name used in config files
@@ -295,6 +334,7 @@ def load_config(path: Path | None = None) -> list[SwitchConfig]:
             write_community=write_community,
             sensors=list(model.sensors),
             walk_sensors=list(model.walk_sensors),
+            box_walks=list(model.box_walks),
         ))
 
     log.info("Loaded %d switches from config", len(switches))

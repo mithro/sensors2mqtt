@@ -9,6 +9,7 @@ from sensors2mqtt.collector.snmp import (
     MODELS,
     SnmpCollector,
     SwitchConfig,
+    _box_walks,
     box_entity,
     load_config,
     parse_box_walk,
@@ -38,6 +39,7 @@ def _make_switch(name: str, model_name: str) -> SwitchConfig:
         poe_port_count=model.poe_port_count,
         sensors=list(model.sensors),
         walk_sensors=list(model.walk_sensors),
+        box_walks=list(model.box_walks),
     )
 
 
@@ -176,6 +178,34 @@ class TestBoxEntity:
     def test_extra_psu_rails_numbered(self):
         assert box_entity("psu_power", 1) == ("psu_power2", "PSU Power 2")
         assert box_entity("psu_power", 3) == ("psu_power4", "PSU Power 4")
+
+
+class TestBoxWalks:
+    def test_builds_three_walks(self):
+        from sensors2mqtt.collector.snmp import _FM_BOX
+        walks = _box_walks(_FM_BOX)
+        by_kind = {w.kind: w for w in walks}
+        assert set(by_kind) == {"fan", "temp", "psu_power"}
+        assert by_kind["fan"].base_oid == "1.3.6.1.4.1.4526.10.43.1.6.1.4"
+        assert by_kind["temp"].base_oid == "1.3.6.1.4.1.4526.10.43.1.15.1.3"
+        assert by_kind["psu_power"].base_oid == "1.3.6.1.4.1.4526.10.43.1.8.1.5"
+
+    def test_sensor_metadata(self):
+        from sensors2mqtt.collector.snmp import _FM_BOX
+        by_kind = {w.kind: w for w in _box_walks(_FM_BOX)}
+        assert by_kind["fan"].unit == "RPM"
+        assert by_kind["fan"].icon == "mdi:fan"
+        assert by_kind["temp"].unit == "°C"
+        assert by_kind["temp"].device_class == "temperature"
+        assert by_kind["psu_power"].unit == "W"
+        assert by_kind["psu_power"].device_class == "power"
+
+    def test_switch_config_defaults_empty(self):
+        # Build a raw SwitchConfig, NOT one derived from MODELS — model
+        # entries gain box_walks in a later task and this must stay true.
+        sw = SwitchConfig(node_id="x", name="x", host="x", community="public",
+                          manufacturer="m", model="m")
+        assert sw.box_walks == []
 
 
 class TestSnmpgetValue:
