@@ -19,9 +19,10 @@ records both, with the live evidence.
   (column 8 of `lldpRemTable`); gdoc2netcfg was discarding it. It now captures
   it — the description is usually far more readable than the port-ID field,
   which is often a bare MAC address.
-- **ifAlias convention.** This repo's `extract_hostname` relies on the
-  `interface.hostname` convention in `ifAlias`
-  (`1.3.6.1.2.1.31.1.1.1.18`). gdoc2netcfg now walks `ifAlias` too and uses the
+- **ifAlias convention.** This repo relies on the `interface.hostname`
+  convention in `ifAlias` (`1.3.6.1.2.1.31.1.1.1.18`); the
+  `extract_hostname` helper originally named here has since been removed
+  as dead code. gdoc2netcfg now walks `ifAlias` too and uses the
   same convention, so both tools see the same port→host mapping.
 
 gdoc2netcfg additionally adopted this repo's Netgear vendor OIDs (per-port PoE

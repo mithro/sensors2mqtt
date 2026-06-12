@@ -663,9 +663,9 @@ class SnmpCollector:
     def fetch_port_descriptions(self, switch: SwitchConfig) -> dict[int, str]:
         """Fetch port descriptions from switch via SNMP ifAlias.
 
-        Returns {port_number: device_name}. The ifAlias convention is
-        "{interface}.{hostname}" (e.g. "eth0.rpi5-pmod") — we strip the
-        interface prefix to get just the device name.
+        Returns {port_number: alias}. The ifAlias convention is
+        "{interface}.{hostname}" (e.g. "eth0.rpi5-pmod"); the full alias
+        is kept, matching the combined LLDP neighbor format.
 
         Results are cached per switch with a TTL to pick up changes.
         """
