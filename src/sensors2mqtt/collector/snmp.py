@@ -390,6 +390,40 @@ def parse_snmpwalk(output: str) -> list[tuple[int, str]]:
     return results
 
 
+def parse_box_walk(output: str, base_oid: str) -> list[tuple[str, str]]:
+    """Parse a boxServices value-column walk into [(instance, raw_value), ...].
+
+    The instance is the full OID suffix relative to base_oid — e.g. "1.0"
+    (unit 1, fan 0) on an M4300, or "0" on a GSM7252PS, whose fan table is
+    indexed by a single component. Unlike parse_snmpwalk(), the suffix is
+    kept whole: last-component parsing would collapse stacked-unit
+    instances (fans "1.0" and "2.0" both become 0) and discard the
+    structure used to order instances.
+
+    snmpwalk prints the leading OID arc as "iso" instead of "1", so the
+    OID is normalised before the prefix comparison. Lines outside
+    base_oid, with a non-numeric suffix, or without a "TYPE: value" form
+    (e.g. "No Such Object ...") are ignored.
+    """
+    prefix = base_oid + "."
+    results = []
+    for line in output.strip().splitlines():
+        m = re.match(r"(\S+)\s*=\s*\S+:\s*(.*)", line.strip())
+        if not m:
+            continue
+        oid = m.group(1)
+        if oid.startswith("iso."):
+            oid = "1." + oid[len("iso."):]
+        if not oid.startswith(prefix):
+            continue
+        instance = oid[len(prefix):]
+        if not re.fullmatch(r"\d+(\.\d+)*", instance):
+            continue
+        val = m.group(2).strip().strip('"')
+        results.append((instance, val))
+    return results
+
+
 def parse_lldp_walk(output: str, field_oid: str) -> dict[int, str]:
     """Parse LLDP remote table walk output into {local_port: value}.
 
