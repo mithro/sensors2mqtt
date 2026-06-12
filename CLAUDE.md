@@ -46,7 +46,7 @@ Switch connection details are configured in `snmp.toml` (see `snmp.toml.example`
 ## Development
 
 ```bash
-make setup    # uv sync --dev
+make setup    # uv sync --dev --all-extras
 make test     # pytest
 make lint     # ruff check
 ```
