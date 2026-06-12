@@ -55,9 +55,9 @@ class SnmpSensor:
     """An individual SNMP sensor to poll.
 
     Attributes:
-        suffix: Entity suffix for MQTT (e.g. "fan1_rpm").
-        name: Human-readable name (e.g. "Fan 1").
-        oid: Full OID to snmpget (e.g. "1.3.6.1.4.1.4526.10.43.1.6.1.4.1.0").
+        suffix: Entity suffix for MQTT (e.g. "cpu_temp").
+        name: Human-readable name (e.g. "CPU Temperature").
+        oid: Full OID to snmpget (e.g. "1.3.6.1.4.1.4526.10.43.1.8.1.5.1.0").
         unit: Unit of measurement.
         device_class: HA device class (temperature, power, etc.). None for RPM.
         icon: MDI icon override. None uses default.
@@ -458,6 +458,10 @@ def box_entity(kind: str, ordinal: int) -> tuple[str, str]:
     numbered (fan1_rpm); the first temperature/PSU sensor keeps its historic
     unnumbered suffix ("temp", "psu_power") and only extra instances (e.g.
     the GSM7252PS's additional PSU rails) get numbered ones.
+
+    Ordinals are recomputed each poll from the instances present, so an instance
+    disappearing mid-run shifts later sensors down a slot; instance sets are
+    stable on real hardware ("Not Supported" marks permanently absent slots).
     """
     if kind == "fan":
         return f"fan{ordinal + 1}_rpm", f"Fan {ordinal + 1}"
@@ -964,7 +968,7 @@ class SnmpCollector:
         """
         sensors = []
 
-        # Static snmpget sensors (fans, temp, PSU power — switch-level only)
+        # Static snmpget sensors (extension point; currently unused by any model)
         for s in switch.sensors:
             sensors.append(SensorDef(
                 suffix=s.suffix,
@@ -1236,11 +1240,11 @@ def main():
                         )
                     discovery_published.add(switch.node_id)
 
-                # Publish hardware sensor state (single blob, not retained)
+                # Publish hardware sensor state (single blob, retained)
                 if hw_values:
                     publish_state(client, collector.state_topic(switch), hw_values)
 
-                # Publish per-port state (per-port topics, not retained)
+                # Publish per-port state (per-port topics, retained)
                 for port_num, port_data in sorted(port_status.items()):
                     nn = str(port_num).zfill(2)
                     port_topic = f"sensors2mqtt/{switch.node_id}/port/{nn}/state"
