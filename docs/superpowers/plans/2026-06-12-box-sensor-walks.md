@@ -1,6 +1,6 @@
 # Walk-Discovered boxServices Sensors Implementation Plan
 
-> **STATUS: ON HOLD** — execute `2026-06-12-snmp-control-dead-code-cleanup.md` first (per user decision 2026-06-12). That cleanup removes `snmp_control.py`'s `parse_lldp_walk` import and 3 dead functions; it does not shift any line numbers this plan references. Remove this marker when starting this plan.
+> **STATUS: READY (2026-06-12)** — the prerequisite `2026-06-12-snmp-control-dead-code-cleanup.md` is COMPLETE (commits 50fc6a5..acf3a26). All line-number anchors in this plan were re-verified against the post-cleanup files on 2026-06-12 and are unchanged (the cleanup's edits were same-size line replacements). Baseline: 247 tests passing, lint clean.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -11,7 +11,7 @@
 **Tech Stack:** Python 3.11+, subprocess `snmpwalk`, pytest with fixture files, paho-mqtt v2. All commands via `uv run`.
 
 **Constraints:**
-- `snmp_control.py` (the PoE control service) imports from `snmp.py`: `SwitchConfig` and `load_config` (shared snmp.toml), `parse_snmpget_value` (PoE state verification in `_snmpget_int()`), `parse_snmpwalk` (bulk PoE/link polling in `poll_all_ports()` — single-component port indices, so the last-component parser is correct there), and `_build_port_device` and `fetch_lldp_chassis_macs` (same per-port HA sub-device scheme). None of these change behaviour in this plan; `SwitchConfig` only gains an additive `box_walks` field that `snmp_control.py` ignores. Keep `parse_snmpget_value` and `parse_snmpwalk`. Keep `SnmpSensor` and `snmpget_value` too — those are used by `snmp.py`'s own static-sensor poll loop, which stays as the extension point for future single-OID sensors. Only `_box_sensors()` is deleted (Task 6). **No changes to `snmp_control.py` are required for box-sensor parity.** (The dead code formerly noted here as optional Task 9 is handled by the separate plan `2026-06-12-snmp-control-dead-code-cleanup.md`, which runs first.)
+- `snmp_control.py` (the PoE control service) imports from `snmp.py`: `SwitchConfig` and `load_config` (shared snmp.toml), `parse_snmpget_value` (PoE state verification in `_snmpget_int()`), `parse_snmpwalk` (bulk PoE/link polling in `poll_all_ports()` — single-component port indices, so the last-component parser is correct there), and `_build_port_device` and `fetch_lldp_chassis_macs` (same per-port HA sub-device scheme). None of these change behaviour in this plan; `SwitchConfig` only gains an additive `box_walks` field that `snmp_control.py` ignores. Keep `parse_snmpget_value` and `parse_snmpwalk`. Keep `SnmpSensor` and `snmpget_value` too — those are used by `snmp.py`'s own static-sensor poll loop, which stays as the extension point for future single-OID sensors. Only `_box_sensors()` is deleted (Task 6). **No changes to `snmp_control.py` are required for box-sensor parity.** (The dead code formerly noted here as optional Task 9 was removed by the separate plan `2026-06-12-snmp-control-dead-code-cleanup.md`, completed 2026-06-12; `snmp_control.py` no longer imports `parse_lldp_walk`, and `parse_snmpwalk` remains used there via a lazy import in `poll_all_ports()`.)
 - HA entity suffixes are `unique_id` components; renaming orphans entity history. The mapping below reproduces today's suffixes exactly on M4300/S3300.
 - Every commit must leave `make test` and `make lint` green. Tasks are ordered so `MODELS` is only flipped (Task 6) after the walk machinery exists.
 
@@ -868,7 +868,7 @@ MODELS: dict[str, SwitchModel] = {
 }
 ```
 
-Note: `_box_walks()` is defined after `MODELS` in the current file layout (Task 3 placed it after `_poe_walk()`, which is before `MODELS` — verify the definition is above `MODELS`; if not, move it above).
+Note on ordering: Task 3 placed `_box_walks()` directly after `_poe_walk()` (line ~193), which sits above `MODELS` (line ~208) — so `_box_walks` is already defined before this reference. No move needed; just confirm visually.
 
 - [ ] **Step 6: Run full suite and lint**
 
@@ -963,4 +963,4 @@ Expected: nothing to commit, working tree clean (all work committed in Tasks 1-7
 
 Optional live smoke test if a real switch is reachable (needs `snmp.toml` and MQTT env vars): `uv run python -m sensors2mqtt.collector.snmp --once` and check the log line `published N hw values` shows fan/temp/PSU counts for a GSM7252PS.
 
-> **Note:** the optional snmp_control dead-code cleanup that used to be Task 9 here was promoted to its own plan, `2026-06-12-snmp-control-dead-code-cleanup.md`, which is executed *before* this plan.
+> **Note:** the optional snmp_control dead-code cleanup that used to be Task 9 here was promoted to its own plan, `2026-06-12-snmp-control-dead-code-cleanup.md`, executed and completed before this plan started.
