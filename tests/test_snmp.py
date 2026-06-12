@@ -604,6 +604,40 @@ class TestSnmpCollector:
         values = collector.poll_switch(sw)
         assert values == {"psu_power": 65}
 
+    def test_get_sensors_for_switch_box(self):
+        """Discovery defs are derived from the suffixes found by polling."""
+        sw = _box_test_switch()
+        collector = self.make_collector(switches=[sw])
+        values = {"fan1_rpm": 5280, "fan2_rpm": 4560, "temp": 65,
+                  "psu_power": 53, "psu_power2": 34}
+        sensors = collector.get_sensors_for_switch(sw, values)
+        by_suffix = {s.suffix: s for s in sensors}
+        assert set(by_suffix) == set(values)
+        assert by_suffix["fan1_rpm"].unit == "RPM"
+        assert by_suffix["fan1_rpm"].icon == "mdi:fan"
+        assert by_suffix["fan2_rpm"].name == "Fan 2"
+        assert by_suffix["temp"].device_class == "temperature"
+        assert by_suffix["psu_power"].name == "PSU Power"
+        assert by_suffix["psu_power2"].name == "PSU Power 2"
+        assert by_suffix["psu_power2"].device_class == "power"
+        for s in sensors:
+            assert s.state_class == "measurement"
+
+    def test_new_sensor_defs_incremental(self):
+        """Sensors first seen on a later poll still get discovery defs."""
+        sw = _box_test_switch()
+        collector = self.make_collector(switches=[sw])
+        first = collector.new_sensor_defs(sw, {"fan1_rpm": 3500, "temp": 40})
+        assert {s.suffix for s in first} == {"fan1_rpm", "temp"}
+        # Same values again: nothing new to announce
+        assert collector.new_sensor_defs(sw, {"fan1_rpm": 3500, "temp": 40}) == []
+        # PSU walk recovers on a later poll: only the new suffixes returned
+        later = collector.new_sensor_defs(
+            sw,
+            {"fan1_rpm": 3500, "temp": 40, "psu_power": 53, "psu_power2": 34},
+        )
+        assert {s.suffix for s in later} == {"psu_power", "psu_power2"}
+
     def test_get_sensors_for_switch_static(self):
         sw = _make_switch("test-m4300", "m4300")
         collector = self.make_collector(switches=[sw])

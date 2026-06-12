@@ -621,6 +621,8 @@ class SnmpCollector:
         self._lldp_neighbors: dict[str, dict[int, str]] = {}
         # Cache of switch management MACs: {node_id: "aa:bb:cc:dd:ee:ff"}
         self._switch_macs: dict[str, str] = {}
+        # Suffixes already announced via HA discovery: {node_id: {suffix}}
+        self._published_suffixes: dict[str, set[str]] = {}
         # Cache expiry times: {"node_id:type": monotonic_expires_at}
         self._cache_times: dict[str, float] = {}
 
@@ -973,7 +975,9 @@ class SnmpCollector:
     def get_sensors_for_switch(self, switch: SwitchConfig, values: dict) -> list[SensorDef]:
         """Build SensorDef list for switch-level hardware sensors only.
 
-        Walk sensors (PoE per-port power) are NOT included here — they are
+        Box sensors (fans, temperature, PSU) are included based on which
+        suffixes the poll discovered. Walk sensors (PoE per-port power) are
+        NOT included here — they are
         published as per-port sub-device sensors in _publish_port_discovery().
         Including them here would create duplicate discovery on the parent
         device that conflicts with the per-port sub-device version.
@@ -991,7 +995,40 @@ class SnmpCollector:
                 icon=s.icon,
             ))
 
+        # Walk-discovered box sensors: poll_switch() assigns contiguous
+        # ordinals per kind, so probe values until the first missing suffix.
+        for box in switch.box_walks:
+            ordinal = 0
+            while True:
+                suffix, name = box_entity(box.kind, ordinal)
+                if suffix not in values:
+                    break
+                sensors.append(SensorDef(
+                    suffix=suffix,
+                    name=name,
+                    unit=box.unit,
+                    device_class=box.device_class,
+                    state_class="measurement",
+                    icon=box.icon,
+                ))
+                ordinal += 1
+
         return sensors
+
+    def new_sensor_defs(self, switch: SwitchConfig, values: dict) -> list[SensorDef]:
+        """Return defs for hardware sensors not yet announced for this switch.
+
+        Discovery is published incrementally: a walk-discovered sensor can
+        first appear on a later poll (e.g. after a transient walk failure
+        on startup), and HA needs its discovery published exactly once.
+        """
+        done = self._published_suffixes.setdefault(switch.node_id, set())
+        new = [
+            s for s in self.get_sensors_for_switch(switch, values)
+            if s.suffix not in done
+        ]
+        done.update(s.suffix for s in new)
+        return new
 
     def get_device_info(self, switch: SwitchConfig) -> DeviceInfo:
         # Lazy-fetch and cache switch management MAC
@@ -1188,13 +1225,14 @@ def main():
                     log.warning("%s: no data", switch.name)
                     continue
 
-                # Publish discovery (once per startup)
-                if switch.node_id not in discovery_published:
-                    device = collector.get_device_info(switch)
-
-                    # Hardware sensor discovery (fans, temp, PSU)
-                    if hw_values:
-                        hw_sensors = collector.get_sensors_for_switch(switch, hw_values)
+                # Hardware sensor discovery (fans, temp, PSU) — incremental:
+                # a walk-discovered sensor can first appear on a later poll
+                # (e.g. after a transient walk failure), so publish discovery
+                # for any suffix not yet announced rather than only once.
+                if hw_values:
+                    hw_sensors = collector.new_sensor_defs(switch, hw_values)
+                    if hw_sensors:
+                        device = collector.get_device_info(switch)
                         hw_state = collector.state_topic(switch)
                         hw_count = publish_discovery(
                             client, hw_sensors, device, hw_state, avail,
@@ -1204,7 +1242,8 @@ def main():
                             switch.name, hw_count,
                         )
 
-                    # Per-port discovery (each port is a sub-device)
+                # Per-port discovery (once per startup; each port is a sub-device)
+                if switch.node_id not in discovery_published:
                     if switch.port_count > 0:
                         chassis_macs = fetch_lldp_chassis_macs(switch)
                         port_count = _publish_port_discovery(
@@ -1215,7 +1254,6 @@ def main():
                             "%s: published discovery for %d port sensors",
                             switch.name, port_count,
                         )
-
                     discovery_published.add(switch.node_id)
 
                 # Publish hardware sensor state (single blob, not retained)
