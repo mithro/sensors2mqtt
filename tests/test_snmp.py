@@ -11,6 +11,7 @@ from sensors2mqtt.collector.snmp import (
     SnmpCollector,
     SwitchConfig,
     load_config,
+    parse_box_walk,
     parse_hex_mac,
     parse_lldp_chassis_ids,
     parse_lldp_walk,
@@ -103,6 +104,59 @@ class TestParseSnmpwalk:
         assert len(result) > 0
         indices = {idx for idx, _ in result}
         assert len(indices) >= 48
+
+
+class TestParseBoxWalk:
+    BASE = "1.3.6.1.4.1.4526.10.43.1.6.1.4"
+
+    def test_single_component_instance(self):
+        output = 'iso.3.6.1.4.1.4526.10.43.1.6.1.4.0 = STRING: "3500"\n'
+        assert parse_box_walk(output, self.BASE) == [("0", "3500")]
+
+    def test_multi_component_instance(self):
+        output = (
+            'iso.3.6.1.4.1.4526.10.43.1.6.1.4.1.0 = STRING: "5280"\n'
+            'iso.3.6.1.4.1.4526.10.43.1.6.1.4.1.1 = STRING: "4560"\n'
+        )
+        assert parse_box_walk(output, self.BASE) == [("1.0", "5280"), ("1.1", "4560")]
+
+    def test_integer_values_unquoted(self):
+        base = "1.3.6.1.4.1.4526.10.43.1.8.1.5"
+        output = (
+            "iso.3.6.1.4.1.4526.10.43.1.8.1.5.1.0 = INTEGER: 53\n"
+            "iso.3.6.1.4.1.4526.10.43.1.8.1.5.1.3 = INTEGER: 35\n"
+        )
+        assert parse_box_walk(output, base) == [("1.0", "53"), ("1.3", "35")]
+
+    def test_not_supported_passed_through(self):
+        """The parser returns the raw marker; skipping is the poller's job."""
+        output = 'iso.3.6.1.4.1.4526.10.43.1.6.1.4.1 = STRING: "Not Supported"\n'
+        assert parse_box_walk(output, self.BASE) == [("1", "Not Supported")]
+
+    def test_filters_lines_outside_base(self):
+        """Feeding a full-table walk only yields rows under the value column."""
+        text = (FIXTURES / "snmpwalk_m4300_fans.txt").read_text()
+        result = parse_box_walk(text, self.BASE)
+        # Fixture has columns 1-6; only column 4 (speed) rows are under BASE
+        assert result == [("1.0", "5280"), ("1.1", "4560")]
+
+    def test_no_false_prefix_match(self):
+        """...6.1.4 must not match ...6.1.40 or bare ...6.1.4 itself."""
+        output = (
+            "iso.3.6.1.4.1.4526.10.43.1.6.1.40.1 = INTEGER: 7\n"
+            "iso.3.6.1.4.1.4526.10.43.1.6.1.4 = INTEGER: 8\n"
+        )
+        assert parse_box_walk(output, self.BASE) == []
+
+    def test_no_such_object_line_ignored(self):
+        output = (
+            "iso.3.6.1.4.1.4526.10.43.1.6.1.4 = "
+            "No Such Object available on this agent at this OID\n"
+        )
+        assert parse_box_walk(output, self.BASE) == []
+
+    def test_empty_output(self):
+        assert parse_box_walk("", self.BASE) == []
 
 
 class TestSnmpgetValue:
