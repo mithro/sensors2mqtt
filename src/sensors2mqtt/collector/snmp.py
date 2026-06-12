@@ -757,8 +757,8 @@ class SnmpCollector:
     def fetch_lldp_neighbors(self, switch: SwitchConfig) -> dict[int, str]:
         """Fetch LLDP neighbor info from switch.
 
-        Returns {port: "sys_name / port_desc"} for ports with LLDP neighbors.
-        Results are cached per switch with a TTL.
+        Returns {port: "port_desc.sys_name"} (e.g. "eth0.rpi5-pmod") for
+        ports with LLDP neighbors. Results are cached per switch with a TTL.
 
         LLDP remote table base OID: 1.0.8802.1.1.2.1.4.1.1
         Field .9 = lldpRemSysName, field .8 = lldpRemPortDesc.
