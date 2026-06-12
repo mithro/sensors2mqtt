@@ -323,10 +323,10 @@ class TestLldpParsing:
         sw = _make_switch("test-gsm7252ps", "gsm7252ps")
         collector = SnmpCollector(config=config, switches=[sw])
         neighbors = collector.fetch_lldp_neighbors(sw)
-        # Port 1 should be "rpi5-pmod / eth0"
+        # Port 1 should be "eth0.rpi5-pmod"
         assert "rpi5-pmod" in neighbors[1]
         assert "eth0" in neighbors[1]
-        # Port 49 should be "sw-netgear-m4300-24x / trunk.gsm7252ps-s1"
+        # Port 49 should be "trunk.gsm7252ps-s1.sw-netgear-m4300-24x"
         assert "sw-netgear-m4300-24x" in neighbors[49]
         # Cached on second call
         neighbors2 = collector.fetch_lldp_neighbors(sw)
