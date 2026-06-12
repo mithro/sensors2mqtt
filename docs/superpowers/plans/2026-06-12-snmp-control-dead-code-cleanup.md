@@ -1,5 +1,7 @@
 # snmp_control.py Dead Code Cleanup Implementation Plan
 
+> **STATUS: COMPLETE (2026-06-12)** — executed as commits 50fc6a5, 1f66317, e74137d, 939c396 on main. Final review: READY.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove the three orphaned hostname-helper functions from `snmp_control.py` (plus their constants, imports, tests, and stale comments) and fix the related stale docstring in `snmp.py`.
@@ -25,7 +27,7 @@
 - Modify: `src/sensors2mqtt/collector/snmp_control.py`
 - Modify: `tests/test_snmp_control.py`
 
-- [ ] **Step 1: Pre-verify the dead-code claim**
+- [x] **Step 1: Pre-verify the dead-code claim**
 
 Run:
 
@@ -36,7 +38,7 @@ grep -rn "extract_hostname\|fetch_port_descriptions\|fetch_lldp_neighbors" \
 
 Expected: hits only in `tests/test_snmp_control.py` (imports and test bodies). The filter excludes the *separate, live* `SnmpCollector` methods of the same names: their `def` lines, `self.fetch_*` calls in `snmp.py`, and `collector.fetch_*` calls in `tests/test_snmp.py`. If anything else appears, STOP and reassess.
 
-- [ ] **Step 2: Delete from `snmp_control.py`**
+- [x] **Step 2: Delete from `snmp_control.py`**
 
 Delete these, top to bottom (line numbers from the current file; deleting top-down shifts later ones, so work bottom-up or re-grep):
 
@@ -75,7 +77,7 @@ from sensors2mqtt.collector.snmp import (
 
 5. `re` is still used (`_snmpget_int`, `_on_message`, `_read_force_overrides`) and `subprocess` is still used (`_snmpget_int`, `_snmpset_int`, `poll_all_ports`) — do NOT remove those imports. `ruff check` in Step 5 confirms nothing else became unused.
 
-- [ ] **Step 3: Delete from `tests/test_snmp_control.py`**
+- [x] **Step 3: Delete from `tests/test_snmp_control.py`**
 
 1. Remove the three names from the import block (lines 9-18), leaving:
 
@@ -97,7 +99,7 @@ from sensors2mqtt.collector.snmp_control import (
 
 5. Delete `TestFetchLldpNeighbors` (lines 669-690) together with its section banner (lines 665-667, `# LLDP fetch + combined hostname tests`). This class runs to the end of the file.
 
-- [ ] **Step 4: Verify deletion is complete**
+- [x] **Step 4: Verify deletion is complete**
 
 Run:
 
@@ -108,12 +110,12 @@ grep -rn "extract_hostname\|fetch_port_descriptions\|fetch_lldp_neighbors\|IF_AL
 
 Expected: no output.
 
-- [ ] **Step 5: Run full suite and lint**
+- [x] **Step 5: Run full suite and lint**
 
 Run: `uv run pytest && uv run ruff check src/ tests/`
 Expected: all tests PASS with exactly 9 fewer tests collected than before (5 + 2 + 2 deleted); no lint errors. The dead functions had no other coverage, so nothing else can fail — if anything does, STOP: the dead-code claim was wrong somewhere.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/sensors2mqtt/collector/snmp_control.py tests/test_snmp_control.py
@@ -136,7 +138,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Modify: `src/sensors2mqtt/collector/snmp.py:666-668`
 - Modify: `docs/gdoc2netcfg-snmp-cross-check.md`
 
-- [ ] **Step 1: Fix the `fetch_port_descriptions` docstring**
+- [x] **Step 1: Fix the `fetch_port_descriptions` docstring**
 
 In `SnmpCollector.fetch_port_descriptions()` the docstring claims the interface prefix is stripped, but the code stores the full alias (the per-port `description` sensor publishes e.g. `eth0.rpi5-pmod`, deliberately matching the combined LLDP-neighbor format built in `fetch_lldp_neighbors()`). Replace:
 
@@ -154,7 +156,7 @@ with:
         is kept, matching the combined LLDP neighbor format.
 ```
 
-- [ ] **Step 2: Update the cross-check doc's reference to extract_hostname**
+- [x] **Step 2: Update the cross-check doc's reference to extract_hostname**
 
 `docs/gdoc2netcfg-snmp-cross-check.md` credits "This repo's `extract_hostname`" for the ifAlias convention — that function is now deleted. Replace the first sentence of the bullet starting `- **ifAlias convention.**`:
 
@@ -175,12 +177,12 @@ with:
 
 Keep the rest of the bullet unchanged.
 
-- [ ] **Step 3: Run tests and lint**
+- [x] **Step 3: Run tests and lint**
 
 Run: `uv run pytest && uv run ruff check src/ tests/`
 Expected: all PASS (docstring/doc-only changes), no lint errors
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/sensors2mqtt/collector/snmp.py docs/gdoc2netcfg-snmp-cross-check.md
@@ -197,22 +199,22 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ### Task 3: Final verification
 
-- [ ] **Step 1: Full test suite**
+- [x] **Step 1: Full test suite**
 
 Run: `uv run pytest -v`
 Expected: all tests PASS; `tests/test_snmp_control.py` no longer contains TestExtractHostname/TestFetchPortDescriptions/TestFetchLldpNeighbors but still contains TestDiscoveryShortNames
 
-- [ ] **Step 2: Lint**
+- [x] **Step 2: Lint**
 
 Run: `uv run ruff check src/ tests/`
 Expected: no errors
 
-- [ ] **Step 3: Smoke-import the control module**
+- [x] **Step 3: Smoke-import the control module**
 
 Run: `uv run python -c "from sensors2mqtt.collector import snmp_control; print('ok')"`
 Expected: `ok` (catches any import-level breakage the tests might not exercise)
 
-- [ ] **Step 4: Confirm working tree is clean**
+- [x] **Step 4: Confirm working tree is clean**
 
 Run: `git status`
 Expected: nothing to commit, working tree clean
