@@ -24,7 +24,7 @@ from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
-from sensors2mqtt.base import MqttConfig
+from sensors2mqtt.base import MqttConfig, make_client
 from sensors2mqtt.discovery import (
     DISCOVERY_PREFIX,
     ORIGIN,
@@ -993,8 +993,6 @@ def main():
     import signal
     import threading
 
-    import paho.mqtt.client as mqtt
-
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
@@ -1019,8 +1017,7 @@ def main():
         signal.signal(signal.SIGTERM, shutdown)
         signal.signal(signal.SIGINT, shutdown)
 
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="sensors2mqtt-snmp")
-    client.username_pw_set(config.user, config.password)
+    client = make_client(config, "sensors2mqtt-snmp")
 
     log.info("Connecting to MQTT %s:%d", config.host, config.port)
     client.connect(config.host, config.port, keepalive=120)

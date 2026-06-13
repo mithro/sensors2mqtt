@@ -41,6 +41,38 @@ class MqttConfig:
         )
 
 
+def make_client(config: MqttConfig, client_id: str) -> mqtt.Client:
+    """Create an MQTT client with credentials and connection logging attached.
+
+    paho is silent about refused connections: after a failed CONNACK the
+    client just never connects and every QoS-0 publish is silently dropped,
+    so a collector can log "published N values" while delivering nothing
+    (observed live when the broker stopped accepting anonymous connections).
+    The attached callbacks make connect results, network-level connect
+    failures, and unexpected disconnects visible in the logs.
+    """
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
+    client.username_pw_set(config.user, config.password)
+
+    def on_connect(client, userdata, flags, reason_code, properties):
+        if reason_code.is_failure:
+            log.error("MQTT connect refused: %s", reason_code)
+        else:
+            log.info("MQTT connected")
+
+    def on_connect_fail(client, userdata):
+        log.error("MQTT connect attempt failed (network); paho will retry")
+
+    def on_disconnect(client, userdata, flags, reason_code, properties):
+        if reason_code.is_failure:
+            log.warning("MQTT disconnected unexpectedly: %s", reason_code)
+
+    client.on_connect = on_connect
+    client.on_connect_fail = on_connect_fail
+    client.on_disconnect = on_disconnect
+    return client
+
+
 class BasePublisher(ABC):
     """Base class for all sensor collectors.
 
@@ -92,8 +124,7 @@ class BasePublisher(ABC):
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
 
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=self.client_id)
-        client.username_pw_set(self.config.user, self.config.password)
+        client = make_client(self.config, self.client_id)
 
         log.info("Connecting to MQTT %s:%d", self.config.host, self.config.port)
         client.connect(self.config.host, self.config.port, keepalive=120)

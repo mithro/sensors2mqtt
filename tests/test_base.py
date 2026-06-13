@@ -1,11 +1,15 @@
 """Tests for base module."""
 
+import logging
 import os
 import signal
 import threading
 from unittest.mock import MagicMock, patch
 
-from sensors2mqtt.base import BasePublisher, MqttConfig
+from paho.mqtt.packettypes import PacketTypes
+from paho.mqtt.reasoncodes import ReasonCode
+
+from sensors2mqtt.base import BasePublisher, MqttConfig, make_client
 from sensors2mqtt.discovery import DeviceInfo, SensorDef
 
 
@@ -146,3 +150,61 @@ class TestBasePublisher:
         )
         mock_instance.disconnect.assert_called_once()
         mock_instance.loop_stop.assert_called_once()
+
+
+class TestMakeClient:
+    """make_client attaches connection-visibility callbacks.
+
+    paho is silent about refused connections — a failed CONNACK means QoS-0
+    publishes are silently dropped while the collector looks healthy (observed
+    live when the broker started refusing anonymous connections).
+    """
+
+    def _client(self):
+        return make_client(MqttConfig(user="u", password="p"), "test-client")
+
+    def test_attaches_all_connection_callbacks(self):
+        client = self._client()
+        assert client.on_connect is not None
+        assert client.on_connect_fail is not None
+        assert client.on_disconnect is not None
+
+    def test_connect_refused_logs_error(self, caplog):
+        client = self._client()
+        rc = ReasonCode(PacketTypes.CONNACK, "Not authorized")
+        with caplog.at_level(logging.ERROR, logger="sensors2mqtt.base"):
+            client.on_connect(client, None, {}, rc, None)
+        assert any(
+            "refused" in r.getMessage() and "Not authorized" in r.getMessage()
+            for r in caplog.records
+        )
+
+    def test_connect_success_logs_info_not_warning(self, caplog):
+        client = self._client()
+        rc = ReasonCode(PacketTypes.CONNACK, "Success")
+        with caplog.at_level(logging.INFO, logger="sensors2mqtt.base"):
+            client.on_connect(client, None, {}, rc, None)
+        assert any("MQTT connected" in r.getMessage() for r in caplog.records)
+        assert not any(r.levelno >= logging.WARNING for r in caplog.records)
+
+    def test_connect_fail_logs_error(self, caplog):
+        client = self._client()
+        with caplog.at_level(logging.ERROR, logger="sensors2mqtt.base"):
+            client.on_connect_fail(client, None)
+        assert any("connect" in r.getMessage().lower() for r in caplog.records)
+
+    def test_unexpected_disconnect_logs_warning(self, caplog):
+        client = self._client()
+        rc = ReasonCode(PacketTypes.DISCONNECT, "Unspecified error")
+        with caplog.at_level(logging.WARNING, logger="sensors2mqtt.base"):
+            client.on_disconnect(client, None, None, rc, None)
+        assert any(
+            "disconnected" in r.getMessage().lower() for r in caplog.records
+        )
+
+    def test_normal_disconnect_logs_nothing(self, caplog):
+        client = self._client()
+        rc = ReasonCode(PacketTypes.DISCONNECT, "Normal disconnection")
+        with caplog.at_level(logging.WARNING, logger="sensors2mqtt.base"):
+            client.on_disconnect(client, None, None, rc, None)
+        assert caplog.records == []
