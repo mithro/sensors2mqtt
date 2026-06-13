@@ -12,7 +12,7 @@ standalone systemd service on the target host.
 
 | Collector | Data Source | Example Sensors |
 |-----------|-------------|---------|
-| **snmp** | SNMP polls to managed switches | Netgear M4300 fans/thermal/PSU, GSM7252PS PoE power |
+| **snmp** | SNMP polls to managed switches | Netgear M4300/GSM7252PS/S3300 fans/thermal/PSU, per-port PoE power |
 | **local** | sysfs/hwmon on local host | RPi CPU temp/throttle, Mellanox SN2410 ASIC/fans |
 | **ipmi_sensors** | IPMI SDR + BMC web API | CPU/board/VRM/DIMM temps, fans, voltages, per-PSU PMBus |
 

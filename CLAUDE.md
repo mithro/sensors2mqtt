@@ -35,7 +35,7 @@ homeassistant/sensor/{node_id}/{suffix}/config — HA auto-discovery (retained)
 | Model | OID prefix | MIB |
 |-------|------------|-----|
 | M4300-24X | 4526.10 | boxServices (.43.1.6 fans, .43.1.15 thermal, .43.1.8 PSU) |
-| GSM7252PS | 4526.10 | FASTPATH PoE (.15.1.1.1.2 per-port mW) |
+| GSM7252PS | 4526.10 | boxServices (fans/PSU, walk-discovered) + FASTPATH PoE (.15.1.1.1.2 per-port mW) |
 | S3300-52X-PoE+ | 4526.11 | boxServices + PoE (same MIB structure, different prefix) |
 
 The Netgear enterprise OID split: `4526.10` = Fully Managed (M4300, GSM7252PS),
@@ -46,7 +46,7 @@ Switch connection details are configured in `snmp.toml` (see `snmp.toml.example`
 ## Development
 
 ```bash
-make setup    # uv sync --dev
+make setup    # uv sync --dev --all-extras
 make test     # pytest
 make lint     # ruff check
 ```
@@ -63,6 +63,10 @@ uv run python -m sensors2mqtt.collector.ipmi_sensors
 ## Key Design Decisions
 
 - Switch sensor definitions are Python constants, not config files
+- boxServices sensors (fans/temp/PSU) are discovered by walking the value
+  columns, not hardcoded per instance — indexing varies by model (M4300
+  uses unit.fan like "1.0"; GSM7252PS uses bare "0"/"2" with a literal
+  "Not Supported" placeholder, and has 4 PSU rails)
 - SNMP uses subprocess `snmpget`/`snmpwalk` (not pysnmp) for simplicity
 - Each collector is a `__main__.py`-style module runnable with `python -m`
 - paho-mqtt v2 API (CallbackAPIVersion.VERSION2)

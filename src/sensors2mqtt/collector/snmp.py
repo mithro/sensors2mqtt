@@ -55,9 +55,9 @@ class SnmpSensor:
     """An individual SNMP sensor to poll.
 
     Attributes:
-        suffix: Entity suffix for MQTT (e.g. "fan1_rpm").
-        name: Human-readable name (e.g. "Fan 1").
-        oid: Full OID to snmpget (e.g. "1.3.6.1.4.1.4526.10.43.1.6.1.4.1.0").
+        suffix: Entity suffix for MQTT (e.g. "cpu_temp").
+        name: Human-readable name (e.g. "CPU Temperature").
+        oid: Full OID to snmpget (e.g. "1.3.6.1.4.1.4526.10.43.1.8.1.5.1.0").
         unit: Unit of measurement.
         device_class: HA device class (temperature, power, etc.). None for RPM.
         icon: MDI icon override. None uses default.
@@ -113,6 +113,30 @@ class WalkSensorDef:
 
 
 @dataclass(frozen=True)
+class BoxWalkDef:
+    """A Netgear boxServices value column to walk.
+
+    Instances are discovered from the walk rather than hardcoded because
+    indexing differs by model: the M4300/S3300 index fans as unit.fan
+    ("1.0"), the GSM7252PS as a bare fan number ("0"), and the GSM7252PS
+    exposes four PSU rails ("1.0"-"1.3") where the others have one.
+
+    Attributes:
+        kind: Sensor kind — "fan", "temp", or "psu_power" (see box_entity).
+        base_oid: The value column subtree to snmpwalk.
+        unit: Unit of measurement.
+        device_class: HA device class. None for RPM.
+        icon: MDI icon override. None uses default.
+    """
+
+    kind: str
+    base_oid: str
+    unit: str
+    device_class: str | None = None
+    icon: str | None = None
+
+
+@dataclass(frozen=True)
 class SwitchModel:
     """Hardware model definition — OID tables and sensor mappings.
 
@@ -126,6 +150,7 @@ class SwitchModel:
     poe_port_count: int = 0
     sensors: list[SnmpSensor] = field(default_factory=list)
     walk_sensors: list[WalkSensorDef] = field(default_factory=list)
+    box_walks: list[BoxWalkDef] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -141,6 +166,7 @@ class SwitchConfig:
         model: For HA device registry (from model).
         sensors: List of sensors to poll (from model).
         walk_sensors: List of walk sensor defs (from model).
+        box_walks: List of boxServices walk defs (from model).
     """
 
     node_id: str
@@ -154,6 +180,7 @@ class SwitchConfig:
     write_community: str | None = None
     sensors: list[SnmpSensor] = field(default_factory=list)
     walk_sensors: list[WalkSensorDef] = field(default_factory=list)
+    box_walks: list[BoxWalkDef] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -167,27 +194,6 @@ _FM_POE = "1.3.6.1.4.1.4526.10.15.1.1.1"
 # Netgear Smart Managed Pro (4526.11): S3300 series
 _SMP_BOX = "1.3.6.1.4.1.4526.11.43.1"
 _SMP_POE = "1.3.6.1.4.1.4526.11.15.1.1.1"
-
-
-def _box_sensors(base: str, num_fans: int) -> list[SnmpSensor]:
-    """Build boxServices sensor list for a given OID base and fan count."""
-    sensors = []
-    for i in range(num_fans):
-        sensors.append(SnmpSensor(
-            suffix=f"fan{i + 1}_rpm", name=f"Fan {i + 1}", unit="RPM", icon="mdi:fan",
-            oid=f"{base}.6.1.4.1.{i}", value_type="string_int",
-        ))
-    sensors.append(SnmpSensor(
-        suffix="temp", name="Temperature", unit="°C",
-        device_class="temperature",
-        oid=f"{base}.15.1.3.1",
-    ))
-    sensors.append(SnmpSensor(
-        suffix="psu_power", name="PSU Power", unit="W",
-        device_class="power",
-        oid=f"{base}.8.1.5.1.0",
-    ))
-    return sensors
 
 
 def _poe_walk(base: str) -> list[WalkSensorDef]:
@@ -204,6 +210,18 @@ def _poe_walk(base: str) -> list[WalkSensorDef]:
     )]
 
 
+def _box_walks(base: str) -> list[BoxWalkDef]:
+    """Build boxServices walk definitions for a given enterprise OID base."""
+    return [
+        BoxWalkDef(kind="fan", base_oid=f"{base}.6.1.4", unit="RPM",
+                   icon="mdi:fan"),
+        BoxWalkDef(kind="temp", base_oid=f"{base}.15.1.3", unit="°C",
+                   device_class="temperature"),
+        BoxWalkDef(kind="psu_power", base_oid=f"{base}.8.1.5", unit="W",
+                   device_class="power"),
+    ]
+
+
 # Known switch models — keyed by the name used in config files
 MODELS: dict[str, SwitchModel] = {
     "m4300": SwitchModel(
@@ -211,13 +229,14 @@ MODELS: dict[str, SwitchModel] = {
         model="M4300-24X",
         port_count=24,
         poe_port_count=0,
-        sensors=_box_sensors(_FM_BOX, num_fans=2),
+        box_walks=_box_walks(_FM_BOX),
     ),
     "gsm7252ps": SwitchModel(
         manufacturer="Netgear",
         model="GSM7252PS",
         port_count=52,
         poe_port_count=48,
+        box_walks=_box_walks(_FM_BOX),
         walk_sensors=_poe_walk(_FM_POE),
     ),
     "s3300": SwitchModel(
@@ -225,7 +244,7 @@ MODELS: dict[str, SwitchModel] = {
         model="GSM7228PS",
         port_count=52,
         poe_port_count=48,
-        sensors=_box_sensors(_SMP_BOX, num_fans=3),
+        box_walks=_box_walks(_SMP_BOX),
         walk_sensors=_poe_walk(_SMP_POE),
     ),
 }
@@ -295,6 +314,7 @@ def load_config(path: Path | None = None) -> list[SwitchConfig]:
             write_community=write_community,
             sensors=list(model.sensors),
             walk_sensors=list(model.walk_sensors),
+            box_walks=list(model.box_walks),
         ))
 
     log.info("Loaded %d switches from config", len(switches))
@@ -388,6 +408,67 @@ def parse_snmpwalk(output: str) -> list[tuple[int, str]]:
             val = m.group(2).strip().strip('"')
             results.append((index, val))
     return results
+
+
+def parse_box_walk(output: str, base_oid: str) -> list[tuple[str, str]]:
+    """Parse a boxServices value-column walk into [(instance, raw_value), ...].
+
+    The instance is the full OID suffix relative to base_oid — e.g. "1.0"
+    (unit 1, fan 0) on an M4300, or "0" on a GSM7252PS, whose fan table is
+    indexed by a single component. Unlike parse_snmpwalk(), the suffix is
+    kept whole: last-component parsing would collapse stacked-unit
+    instances (fans "1.0" and "2.0" both become 0) and discard the
+    structure used to order instances.
+
+    snmpwalk prints the leading OID arc as "iso" instead of "1", so the
+    OID is normalised before the prefix comparison. Lines outside
+    base_oid, with a non-numeric suffix, or without a "TYPE: value" form
+    (e.g. "No Such Object ...") are ignored.
+    """
+    prefix = base_oid + "."
+    results = []
+    for line in output.strip().splitlines():
+        m = re.match(r"(\S+)\s*=\s*\S+:\s*(.*)", line.strip())
+        if not m:
+            continue
+        oid = m.group(1)
+        if oid.startswith("iso."):
+            oid = "1." + oid[len("iso."):]
+        if not oid.startswith(prefix):
+            continue
+        instance = oid[len(prefix):]
+        if not re.fullmatch(r"\d+(\.\d+)*", instance):
+            continue
+        val = m.group(2).strip().strip('"')
+        results.append((instance, val))
+    return results
+
+
+# Labels for the kinds that reach the dict lookup — "fan" returns early
+# in box_entity() with its own numbered suffix scheme.
+_BOX_KIND_LABELS = {"temp": "Temperature", "psu_power": "PSU Power"}
+
+
+def box_entity(kind: str, ordinal: int) -> tuple[str, str]:
+    """Map a discovered box sensor (kind, ordinal) to its (suffix, name).
+
+    ordinal is the 0-based position in instance-sorted order. Suffixes are
+    HA unique_id components and must stay stable across releases — renaming
+    one orphans the entity's recorded history. Fans have always been
+    numbered (fan1_rpm); the first temperature/PSU sensor keeps its historic
+    unnumbered suffix ("temp", "psu_power") and only extra instances (e.g.
+    the GSM7252PS's additional PSU rails) get numbered ones.
+
+    Ordinals are recomputed each poll from the instances present, so an instance
+    disappearing mid-run shifts later sensors down a slot; instance sets are
+    stable on real hardware ("Not Supported" marks permanently absent slots).
+    """
+    if kind == "fan":
+        return f"fan{ordinal + 1}_rpm", f"Fan {ordinal + 1}"
+    label = _BOX_KIND_LABELS[kind]
+    if ordinal == 0:
+        return kind, label
+    return f"{kind}{ordinal + 1}", f"{label} {ordinal + 1}"
 
 
 def parse_lldp_walk(output: str, field_oid: str) -> dict[int, str]:
@@ -524,6 +605,8 @@ class SnmpCollector:
         self._lldp_neighbors: dict[str, dict[int, str]] = {}
         # Cache of switch management MACs: {node_id: "aa:bb:cc:dd:ee:ff"}
         self._switch_macs: dict[str, str] = {}
+        # Suffixes already announced via HA discovery: {node_id: {suffix}}
+        self._published_suffixes: dict[str, set[str]] = {}
         # Cache expiry times: {"node_id:type": monotonic_expires_at}
         self._cache_times: dict[str, float] = {}
 
@@ -552,6 +635,51 @@ class SnmpCollector:
                 log.warning("%s: snmpget %s timed out", switch.name, sensor.suffix)
             except Exception as e:
                 log.warning("%s: snmpget %s error: %s", switch.name, sensor.suffix, e)
+
+        # Walk-discovered boxServices sensors (fans, temperature, PSU).
+        # Instances vary by model (see BoxWalkDef), so each value column is
+        # walked and whatever rows exist become sensors, in instance order.
+        for box in switch.box_walks:
+            try:
+                result = subprocess.run(
+                    ["snmpwalk", "-v2c", "-c", switch.community, switch.host,
+                     box.base_oid],
+                    capture_output=True, text=True, timeout=self._timeout * 3,
+                )
+                if result.returncode != 0:
+                    log.warning(
+                        "%s: snmpwalk %s (%s) failed: %s",
+                        switch.name, box.base_oid, box.kind,
+                        result.stderr.strip(),
+                    )
+                    continue
+                readings = []
+                for instance, raw in parse_box_walk(result.stdout, box.base_oid):
+                    if raw == "Not Supported":
+                        # Netgear's literal placeholder for an absent sensor
+                        # slot (e.g. the GSM7252PS middle fan) — not an error.
+                        continue
+                    try:
+                        value = int(raw)
+                    except ValueError:
+                        log.warning(
+                            "%s: non-integer %s reading %r at instance %s",
+                            switch.name, box.kind, raw, instance,
+                        )
+                        continue
+                    readings.append(
+                        (tuple(int(c) for c in instance.split(".")), value)
+                    )
+                readings.sort()
+                for ordinal, (_instance, value) in enumerate(readings):
+                    suffix, _name = box_entity(box.kind, ordinal)
+                    values[suffix] = value
+            except subprocess.TimeoutExpired:
+                log.warning("%s: snmpwalk %s timed out",
+                            switch.name, box.base_oid)
+            except Exception as e:
+                log.warning("%s: snmpwalk %s error: %s",
+                            switch.name, box.base_oid, e)
 
         # snmpwalk-based sensors
         for walk_def in switch.walk_sensors:
@@ -831,14 +959,16 @@ class SnmpCollector:
     def get_sensors_for_switch(self, switch: SwitchConfig, values: dict) -> list[SensorDef]:
         """Build SensorDef list for switch-level hardware sensors only.
 
-        Walk sensors (PoE per-port power) are NOT included here — they are
+        Box sensors (fans, temperature, PSU) are included based on which
+        suffixes the poll discovered. Walk sensors (PoE per-port power) are
+        NOT included here — they are
         published as per-port sub-device sensors in _publish_port_discovery().
         Including them here would create duplicate discovery on the parent
         device that conflicts with the per-port sub-device version.
         """
         sensors = []
 
-        # Static snmpget sensors (fans, temp, PSU power — switch-level only)
+        # Static snmpget sensors (extension point; currently unused by any model)
         for s in switch.sensors:
             sensors.append(SensorDef(
                 suffix=s.suffix,
@@ -849,7 +979,40 @@ class SnmpCollector:
                 icon=s.icon,
             ))
 
+        # Walk-discovered box sensors: poll_switch() assigns contiguous
+        # ordinals per kind, so probe values until the first missing suffix.
+        for box in switch.box_walks:
+            ordinal = 0
+            while True:
+                suffix, name = box_entity(box.kind, ordinal)
+                if suffix not in values:
+                    break
+                sensors.append(SensorDef(
+                    suffix=suffix,
+                    name=name,
+                    unit=box.unit,
+                    device_class=box.device_class,
+                    state_class="measurement",
+                    icon=box.icon,
+                ))
+                ordinal += 1
+
         return sensors
+
+    def new_sensor_defs(self, switch: SwitchConfig, values: dict) -> list[SensorDef]:
+        """Return defs for hardware sensors not yet announced for this switch.
+
+        Discovery is published incrementally: a walk-discovered sensor can
+        first appear on a later poll (e.g. after a transient walk failure
+        on startup), and HA needs its discovery published exactly once.
+        """
+        done = self._published_suffixes.setdefault(switch.node_id, set())
+        new = [
+            s for s in self.get_sensors_for_switch(switch, values)
+            if s.suffix not in done
+        ]
+        done.update(s.suffix for s in new)
+        return new
 
     def get_device_info(self, switch: SwitchConfig) -> DeviceInfo:
         # Lazy-fetch and cache switch management MAC
@@ -1046,13 +1209,14 @@ def main():
                     log.warning("%s: no data", switch.name)
                     continue
 
-                # Publish discovery (once per startup)
-                if switch.node_id not in discovery_published:
-                    device = collector.get_device_info(switch)
-
-                    # Hardware sensor discovery (fans, temp, PSU)
-                    if hw_values:
-                        hw_sensors = collector.get_sensors_for_switch(switch, hw_values)
+                # Hardware sensor discovery (fans, temp, PSU) — incremental:
+                # a walk-discovered sensor can first appear on a later poll
+                # (e.g. after a transient walk failure), so publish discovery
+                # for any suffix not yet announced rather than only once.
+                if hw_values:
+                    hw_sensors = collector.new_sensor_defs(switch, hw_values)
+                    if hw_sensors:
+                        device = collector.get_device_info(switch)
                         hw_state = collector.state_topic(switch)
                         hw_count = publish_discovery(
                             client, hw_sensors, device, hw_state, avail,
@@ -1062,7 +1226,8 @@ def main():
                             switch.name, hw_count,
                         )
 
-                    # Per-port discovery (each port is a sub-device)
+                # Per-port discovery (once per startup; each port is a sub-device)
+                if switch.node_id not in discovery_published:
                     if switch.port_count > 0:
                         chassis_macs = fetch_lldp_chassis_macs(switch)
                         port_count = _publish_port_discovery(
@@ -1073,14 +1238,13 @@ def main():
                             "%s: published discovery for %d port sensors",
                             switch.name, port_count,
                         )
-
                     discovery_published.add(switch.node_id)
 
-                # Publish hardware sensor state (single blob, not retained)
+                # Publish hardware sensor state (single blob, retained)
                 if hw_values:
                     publish_state(client, collector.state_topic(switch), hw_values)
 
-                # Publish per-port state (per-port topics, not retained)
+                # Publish per-port state (per-port topics, retained)
                 for port_num, port_data in sorted(port_status.items()):
                     nn = str(port_num).zfill(2)
                     port_topic = f"sensors2mqtt/{switch.node_id}/port/{nn}/state"
