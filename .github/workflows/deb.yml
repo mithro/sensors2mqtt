@@ -16,7 +16,7 @@ jobs:
           apt-get install -y --no-install-recommends \
             build-essential ca-certificates git \
             dpkg-dev debhelper dh-python pybuild-plugin-pyproject \
-            python3-all python3-hatchling python3-hatch-vcs \
+            python3-all python3-hatchling python3-hatch-vcs python3-setuptools-scm \
             python3-paho-mqtt python3-pytest python3-requests
 
       - uses: actions/checkout@v4
@@ -25,6 +25,9 @@ jobs:
 
       - name: Trust repo directory
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Set changelog version from git
+        run: python3 packaging/deb-version.py --write-changelog
 
       - name: Build packages
         run: dpkg-buildpackage -us -uc
