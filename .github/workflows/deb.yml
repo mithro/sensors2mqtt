@@ -3,7 +3,6 @@ name: Debian Packages
 on:
   push:
     branches: [main]
-    tags: ["v*"]
 
 jobs:
   build-deb:
