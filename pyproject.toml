@@ -24,6 +24,11 @@ docs = [
 source = "vcs"
 
 [tool.hatch.version.raw-options]
+# Every push to main is a full release: post-release versioning gives a real,
+# monotonic version that increments each commit (tag -> 0.3.0, +N commits ->
+# 0.3.0.postN) rather than a .dev pre-release. These are also valid Debian
+# versions verbatim, so the .deb reuses them with no conversion. See issue #2.
+version_scheme = "post-release"
 local_scheme = "no-local-version"
 
 [tool.hatch.build.hooks.vcs]
