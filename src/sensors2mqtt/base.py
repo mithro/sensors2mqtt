@@ -10,6 +10,7 @@ import os
 import signal
 import threading
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import paho.mqtt.client as mqtt
@@ -41,7 +42,11 @@ class MqttConfig:
         )
 
 
-def make_client(config: MqttConfig, client_id: str) -> mqtt.Client:
+def make_client(
+    config: MqttConfig,
+    client_id: str,
+    on_connected: Callable[[mqtt.Client], None] | None = None,
+) -> mqtt.Client:
     """Create an MQTT client with credentials and connection logging attached.
 
     paho is silent about refused connections: after a failed CONNACK the
@@ -50,6 +55,11 @@ def make_client(config: MqttConfig, client_id: str) -> mqtt.Client:
     (observed live when the broker stopped accepting anonymous connections).
     The attached callbacks make connect results, network-level connect
     failures, and unexpected disconnects visible in the logs.
+
+    ``on_connected``, if given, is called with the client after each
+    *successful* connect (CONNACK ok), including reconnects. Use it to
+    (re)establish subscriptions: a broker drops them on disconnect with a
+    clean session, and paho does not resubscribe automatically.
     """
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
     client.username_pw_set(config.user, config.password)
@@ -57,8 +67,10 @@ def make_client(config: MqttConfig, client_id: str) -> mqtt.Client:
     def on_connect(client, userdata, flags, reason_code, properties):
         if reason_code.is_failure:
             log.error("MQTT connect refused: %s", reason_code)
-        else:
-            log.info("MQTT connected")
+            return
+        log.info("MQTT connected")
+        if on_connected is not None:
+            on_connected(client)
 
     def on_connect_fail(client, userdata):
         log.error("MQTT connect attempt failed (network); paho will retry")

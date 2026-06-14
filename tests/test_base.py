@@ -208,3 +208,25 @@ class TestMakeClient:
         with caplog.at_level(logging.WARNING, logger="sensors2mqtt.base"):
             client.on_disconnect(client, None, None, rc, None)
         assert caplog.records == []
+
+    def test_on_connected_invoked_on_successful_connect(self):
+        """on_connected runs after a successful CONNACK (every reconnect) so
+        subscriptions can be re-established."""
+        seen = []
+        client = make_client(
+            MqttConfig(user="u", password="p"), "test-client",
+            on_connected=seen.append,
+        )
+        client.on_connect(client, None, {}, ReasonCode(PacketTypes.CONNACK, "Success"), None)
+        assert seen == [client]
+
+    def test_on_connected_not_invoked_on_failed_connect(self):
+        seen = []
+        client = make_client(
+            MqttConfig(user="u", password="p"), "test-client",
+            on_connected=seen.append,
+        )
+        client.on_connect(
+            client, None, {}, ReasonCode(PacketTypes.CONNACK, "Not authorized"), None,
+        )
+        assert seen == []
