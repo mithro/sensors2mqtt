@@ -223,14 +223,11 @@ def main():
     collector = HwmonCollector()
 
     if args.once:
-        import paho.mqtt.client as mqtt
-
-        from sensors2mqtt.base import MqttConfig
+        from sensors2mqtt.base import MqttConfig, make_client
         from sensors2mqtt.discovery import publish_discovery, publish_state
 
         config = MqttConfig.from_env()
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=collector.client_id)
-        client.username_pw_set(config.user, config.password)
+        client = make_client(config, collector.client_id, will_topic=collector.avail_topic)
         client.connect(config.host, config.port, keepalive=120)
         client.loop_start()
 
