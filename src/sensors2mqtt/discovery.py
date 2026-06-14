@@ -70,11 +70,37 @@ class DeviceInfo:
     via_device: str | None = None
 
 
+def availability_config(*topics: str | None, mode: str = "all") -> dict:
+    """Build the HA availability portion of a discovery payload.
+
+    One topic -> a single ``availability_topic``. Two or more (e.g. a device's
+    own status plus a per-collector bridge status) -> an ``availability`` list
+    with ``availability_mode`` (default ``all``: available only if every listed
+    topic is online). ``None`` topics are ignored, so callers can pass an
+    optional bridge topic unconditionally.
+    """
+    live = [t for t in topics if t]
+    if len(live) <= 1:
+        return {
+            "availability_topic": live[0] if live else "",
+            "payload_available": "online",
+            "payload_not_available": "offline",
+        }
+    return {
+        "availability": [
+            {"topic": t, "payload_available": "online", "payload_not_available": "offline"}
+            for t in live
+        ],
+        "availability_mode": mode,
+    }
+
+
 def discovery_payload(
     sensor: SensorDef,
     device: DeviceInfo,
     state_topic: str,
     avail_topic: str,
+    bridge_topic: str | None = None,
 ) -> dict:
     """Build HA auto-discovery config payload for a sensor."""
     config = {
@@ -84,9 +110,7 @@ def discovery_payload(
         "value_template": f"{{{{ value_json.{sensor.suffix} }}}}",
         "unit_of_measurement": sensor.unit,
         "device": device_dict(device),
-        "availability_topic": avail_topic,
-        "payload_available": "online",
-        "payload_not_available": "offline",
+        **availability_config(avail_topic, bridge_topic),
         "origin": ORIGIN,
     }
     if sensor.state_class:
@@ -106,11 +130,12 @@ def publish_discovery(
     device: DeviceInfo,
     state_topic: str,
     avail_topic: str,
+    bridge_topic: str | None = None,
 ) -> int:
     """Publish HA auto-discovery configs for all sensors. Returns count published."""
     for sensor in sensors:
         config_topic = f"{DISCOVERY_PREFIX}/sensor/{device.node_id}/{sensor.suffix}/config"
-        payload = discovery_payload(sensor, device, state_topic, avail_topic)
+        payload = discovery_payload(sensor, device, state_topic, avail_topic, bridge_topic)
         client.publish(config_topic, json.dumps(payload), retain=True)
     return len(sensors)
 

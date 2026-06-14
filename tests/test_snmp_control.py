@@ -84,6 +84,34 @@ class TestCommandResubscription:
         assert not client.subscribe.called
 
 
+class TestBridgeAvailability:
+    """One MQTT connection serves many switches, so a single Last-Will can't
+    cover each switch's status topic. A per-collector bridge topic is the will,
+    and every control entity lists it (mode "all") so HA marks them unavailable
+    if the control service dies.
+    """
+
+    def test_on_connect_publishes_bridge_online(self):
+        from sensors2mqtt.collector.snmp_control import SNMP_CONTROL_BRIDGE_TOPIC
+        ctrl = _make_controller()
+        ctrl._once = False
+        client = MagicMock()
+        ctrl._on_mqtt_connected(client)
+        client.publish.assert_any_call(SNMP_CONTROL_BRIDGE_TOPIC, "online", retain=True)
+
+    def test_every_entity_lists_bridge_in_availability(self):
+        from sensors2mqtt.collector.snmp_control import SNMP_CONTROL_BRIDGE_TOPIC
+        ctrl = _make_controller()
+        sw = ctrl.switches[0]
+        ctrl.publish_discovery(sw)
+        payloads = [json.loads(c.args[1]) for c in ctrl._client.publish.call_args_list]
+        assert payloads  # discovery published something
+        for p in payloads:
+            topics = [a["topic"] for a in p["availability"]]
+            assert SNMP_CONTROL_BRIDGE_TOPIC in topics
+            assert p["availability_mode"] == "all"
+
+
 # ---------------------------------------------------------------------------
 # PortControlState tests
 # ---------------------------------------------------------------------------
@@ -447,8 +475,9 @@ class TestDiscovery:
             retain = c[1].get("retain", False)
             assert retain is True, f"Discovery not retained: {c[0][0]}"
 
-    def test_toggle_dual_availability(self):
-        """Toggle and cycle use dual availability (switch + per-port)."""
+    def test_toggle_availability_covers_switch_port_and_bridge(self):
+        """Toggle/cycle availability spans switch + per-port + collector bridge."""
+        from sensors2mqtt.collector.snmp_control import SNMP_CONTROL_BRIDGE_TOPIC
         ctrl = _make_controller()
         sw = ctrl.switches[0]
         ctrl.publish_discovery(sw)
@@ -457,10 +486,11 @@ class TestDiscovery:
         toggle_calls = [c for c in calls if "poe_toggle" in str(c[0][0])]
         payload = json.loads(toggle_calls[0][0][1])
 
-        assert "availability" in payload
-        assert isinstance(payload["availability"], list)
-        assert len(payload["availability"]) == 2
         assert payload["availability_mode"] == "all"
+        topics = [a["topic"] for a in payload["availability"]]
+        assert f"sensors2mqtt/{sw.node_id}/status" in topics      # switch
+        assert any("/port/" in t for t in topics)                 # per-port
+        assert SNMP_CONTROL_BRIDGE_TOPIC in topics                # collector bridge
 
 
 # ---------------------------------------------------------------------------

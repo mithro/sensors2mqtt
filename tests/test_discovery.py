@@ -164,3 +164,49 @@ class TestPublishState:
         assert call["topic"] == "sensors2mqtt/test_device/state"
         assert call["retain"] is True
         assert json.loads(call["payload"]) == {"cpu_temp": 42.5, "fan1_rpm": 3200}
+
+
+class TestAvailabilityConfig:
+    """availability_config builds HA availability from one or more topics.
+
+    Multi-device collectors (one MQTT connection, many switches) add a per-
+    collector bridge topic so the bridge Last-Will marks every entity
+    unavailable if the collector dies, while a single unreachable device still
+    marks only its own entities unavailable.
+    """
+
+    def test_single_topic_uses_availability_topic(self):
+        from sensors2mqtt.discovery import availability_config
+        assert availability_config("sensors2mqtt/x/status") == {
+            "availability_topic": "sensors2mqtt/x/status",
+            "payload_available": "online",
+            "payload_not_available": "offline",
+        }
+
+    def test_multiple_topics_use_list_mode_all(self):
+        from sensors2mqtt.discovery import availability_config
+        cfg = availability_config("sensors2mqtt/x/status", "sensors2mqtt/snmp_bridge/status")
+        assert cfg["availability_mode"] == "all"
+        assert [a["topic"] for a in cfg["availability"]] == [
+            "sensors2mqtt/x/status", "sensors2mqtt/snmp_bridge/status",
+        ]
+        assert "availability_topic" not in cfg
+
+    def test_none_topics_filtered(self):
+        from sensors2mqtt.discovery import availability_config
+        cfg = availability_config("sensors2mqtt/x/status", None)
+        assert cfg["availability_topic"] == "sensors2mqtt/x/status"
+        assert "availability" not in cfg
+
+    def test_discovery_payload_with_bridge_lists_both(self):
+        payload = discovery_payload(
+            make_sensor(), make_device(),
+            state_topic="sensors2mqtt/test_device/state",
+            avail_topic="sensors2mqtt/test_device/status",
+            bridge_topic="sensors2mqtt/snmp_bridge/status",
+        )
+        assert payload["availability_mode"] == "all"
+        assert [a["topic"] for a in payload["availability"]] == [
+            "sensors2mqtt/test_device/status", "sensors2mqtt/snmp_bridge/status",
+        ]
+        assert "availability_topic" not in payload
