@@ -1,10 +1,12 @@
 VENV := .venv
 VENV_BIN := $(VENV)/bin
 
-# Create venv and install project with dev dependencies.
+# Create venv and install project with dev dependencies and all extras.
+# --all-extras is needed so the full test suite can import optional deps
+# (e.g. the ipmi collector's `requests`, declared under the `ipmi` extra).
 # Re-runs when pyproject.toml changes.
 $(VENV)/.stamp: pyproject.toml
-	uv sync --dev
+	uv sync --dev --all-extras
 	touch $@
 
 .PHONY: help
