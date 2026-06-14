@@ -46,6 +46,7 @@ def make_client(
     config: MqttConfig,
     client_id: str,
     on_connected: Callable[[mqtt.Client], None] | None = None,
+    will_topic: str | None = None,
 ) -> mqtt.Client:
     """Create an MQTT client with credentials and connection logging attached.
 
@@ -60,9 +61,16 @@ def make_client(
     *successful* connect (CONNACK ok), including reconnects. Use it to
     (re)establish subscriptions: a broker drops them on disconnect with a
     clean session, and paho does not resubscribe automatically.
+
+    ``will_topic``, if given, registers a Last-Will: when the client dies
+    ungracefully (crash, power loss, network drop), the broker publishes
+    ``offline`` (retained) to that topic so Home Assistant marks the device
+    unavailable. A clean shutdown still publishes ``offline`` itself.
     """
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
     client.username_pw_set(config.user, config.password)
+    if will_topic is not None:
+        client.will_set(will_topic, payload="offline", retain=True)
 
     def on_connect(client, userdata, flags, reason_code, properties):
         if reason_code.is_failure:
@@ -136,7 +144,7 @@ class BasePublisher(ABC):
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
 
-        client = make_client(self.config, self.client_id)
+        client = make_client(self.config, self.client_id, will_topic=self.avail_topic)
 
         log.info("Connecting to MQTT %s:%d", self.config.host, self.config.port)
         client.connect(self.config.host, self.config.port, keepalive=120)

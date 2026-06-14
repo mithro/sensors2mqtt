@@ -24,7 +24,7 @@ import paho.mqtt.client as mqtt
 import requests
 import urllib3
 
-from sensors2mqtt.base import MqttConfig
+from sensors2mqtt.base import MqttConfig, make_client
 from sensors2mqtt.discovery import (
     ORIGIN,
     DeviceInfo,
@@ -462,8 +462,7 @@ def main():
         signal.signal(signal.SIGTERM, shutdown)
         signal.signal(signal.SIGINT, shutdown)
 
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="sensors2mqtt-ipmi-sensors")
-    client.username_pw_set(config.user, config.password)
+    client = make_client(config, "sensors2mqtt-ipmi-sensors", will_topic=avail_topic)
 
     log.info("Connecting to MQTT %s:%d", config.host, config.port)
     client.connect(config.host, config.port, keepalive=120)

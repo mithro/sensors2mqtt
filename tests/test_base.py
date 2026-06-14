@@ -151,6 +151,28 @@ class TestBasePublisher:
         mock_instance.disconnect.assert_called_once()
         mock_instance.loop_stop.assert_called_once()
 
+    @patch("sensors2mqtt.base.mqtt.Client")
+    def test_run_sets_will_to_avail_topic(self, MockClient):
+        """run() registers a Last-Will on the availability topic before connect."""
+        mock_instance = MagicMock()
+        MockClient.return_value = mock_instance
+
+        pub = StubPublisher(poll_values={"temp": 42.0}, config=MqttConfig(poll_interval=60))
+
+        def stop_after_delay():
+            while pub.poll_count < 1:
+                pass
+            pub._stop_event.set()
+
+        t = threading.Thread(target=stop_after_delay)
+        t.start()
+        pub.run()
+        t.join(timeout=5)
+
+        mock_instance.will_set.assert_called_once_with(
+            "sensors2mqtt/test/status", payload="offline", retain=True,
+        )
+
 
 class TestMakeClient:
     """make_client attaches connection-visibility callbacks.
@@ -230,3 +252,21 @@ class TestMakeClient:
             client, None, {}, ReasonCode(PacketTypes.CONNACK, "Not authorized"), None,
         )
         assert seen == []
+
+    @patch("sensors2mqtt.base.mqtt.Client")
+    def test_will_set_when_will_topic_given(self, MockClient):
+        """A Last-Will marks availability offline on ungraceful disconnect."""
+        inst = MockClient.return_value
+        make_client(
+            MqttConfig(user="u", password="p"), "c",
+            will_topic="sensors2mqtt/x/status",
+        )
+        inst.will_set.assert_called_once_with(
+            "sensors2mqtt/x/status", payload="offline", retain=True,
+        )
+
+    @patch("sensors2mqtt.base.mqtt.Client")
+    def test_no_will_without_will_topic(self, MockClient):
+        inst = MockClient.return_value
+        make_client(MqttConfig(user="u", password="p"), "c")
+        inst.will_set.assert_not_called()
