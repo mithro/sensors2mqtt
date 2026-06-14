@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import signal
+import socket
 import subprocess
 import threading
 import time
@@ -24,7 +25,7 @@ import paho.mqtt.client as mqtt
 import requests
 import urllib3
 
-from sensors2mqtt.base import MqttConfig, make_client
+from sensors2mqtt.base import MqttConfig, client_id_for, host_id, make_client
 from sensors2mqtt.discovery import (
     ORIGIN,
     DeviceInfo,
@@ -43,14 +44,9 @@ log = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
-NODE_ID = "big_storage"
-DEVICE = DeviceInfo(
-    node_id=NODE_ID,
-    name="big-storage",
-    manufacturer="Supermicro",
-    model="X11DSC+",
-    configuration_url=None,  # set dynamically from BMC_HOST
-)
+# Device node_id is the host's id (the daemon runs on the BMC's host), so the
+# collector is not pinned to one machine name. host_id() is the short hostname.
+NODE_ID = host_id()
 
 
 def fetch_bmc_mac() -> str | None:
@@ -462,7 +458,9 @@ def main():
         signal.signal(signal.SIGTERM, shutdown)
         signal.signal(signal.SIGINT, shutdown)
 
-    client = make_client(config, "sensors2mqtt-ipmi-sensors", will_topic=avail_topic)
+    client = make_client(
+        config, client_id_for("ipmi-sensors"), will_topic=avail_topic,
+    )
 
     log.info("Connecting to MQTT %s:%d", config.host, config.port)
     client.connect(config.host, config.port, keepalive=120)
@@ -473,7 +471,7 @@ def main():
         log.info("BMC MAC: %s", bmc_mac)
     device_info = DeviceInfo(
         node_id=NODE_ID,
-        name="big-storage",
+        name=socket.gethostname(),
         manufacturer="Supermicro",
         model="X11DSC+",
         configuration_url=f"https://{bmc_host}",
