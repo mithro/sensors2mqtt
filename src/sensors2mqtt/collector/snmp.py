@@ -24,7 +24,7 @@ from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
-from sensors2mqtt.base import MqttConfig, make_client
+from sensors2mqtt.base import MqttConfig, client_id_for, make_client
 from sensors2mqtt.discovery import (
     DISCOVERY_PREFIX,
     ORIGIN,
@@ -1028,7 +1028,7 @@ def main():
         c.publish(SNMP_BRIDGE_TOPIC, "online", retain=True)
 
     client = make_client(
-        config, "sensors2mqtt-snmp",
+        config, client_id_for("snmp"),
         on_connected=_publish_bridge_online,
         will_topic=SNMP_BRIDGE_TOPIC,
     )

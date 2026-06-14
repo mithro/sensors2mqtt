@@ -26,7 +26,7 @@ from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
-from sensors2mqtt.base import MqttConfig, make_client
+from sensors2mqtt.base import MqttConfig, client_id_for, make_client
 from sensors2mqtt.collector.snmp import (
     SwitchConfig,
     _build_port_device,
@@ -577,7 +577,7 @@ class PoeController:
         self._once = once
         self._connected.clear()
         client = make_client(
-            self.mqtt_config, "sensors2mqtt-snmp-control",
+            self.mqtt_config, client_id_for("snmp-control"),
             on_connected=self._on_mqtt_connected,
             will_topic=SNMP_CONTROL_BRIDGE_TOPIC,
         )
