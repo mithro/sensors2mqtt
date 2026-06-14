@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from sensors2mqtt.base import BasePublisher
+from sensors2mqtt.base import BasePublisher, client_id_for, host_id
 from sensors2mqtt.discovery import DeviceInfo, SensorDef
 
 log = logging.getLogger(__name__)
@@ -146,8 +147,8 @@ class HwmonCollector(BasePublisher):
             if mac:
                 log.info("Management MAC: %s", mac)
             self._cached_device = DeviceInfo(
-                node_id="sw_bb_25g",
-                name="sw-bb-25g",
+                node_id=host_id(),
+                name=socket.gethostname(),
                 manufacturer="Mellanox",
                 model="SN2410",
                 connections=(("mac", mac),) if mac else None,
@@ -156,7 +157,7 @@ class HwmonCollector(BasePublisher):
 
     @property
     def client_id(self) -> str:
-        return "sensors2mqtt-hwmon"
+        return client_id_for("hwmon")
 
     def poll(self) -> dict | None:
         data = self._run_sensors()

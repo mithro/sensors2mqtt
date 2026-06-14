@@ -40,7 +40,8 @@ class TestHwmonCollector:
     def make_collector(self):
         return HwmonCollector(config=MqttConfig(host="test", port=1883, user="u", password="p"))
 
-    def test_device_info(self):
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="sw-bb-25g")
+    def test_device_info(self, _mock):
         c = self.make_collector()
         assert c.device.node_id == "sw_bb_25g"
         assert c.device.manufacturer == "Mellanox"
@@ -49,7 +50,8 @@ class TestHwmonCollector:
         c = self.make_collector()
         assert len(c.sensors) == len(HWMON_SENSORS)
 
-    def test_topics(self):
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="sw-bb-25g")
+    def test_topics(self, _mock):
         c = self.make_collector()
         assert c.state_topic == "sensors2mqtt/sw_bb_25g/state"
         assert c.avail_topic == "sensors2mqtt/sw_bb_25g/status"
