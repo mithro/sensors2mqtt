@@ -77,7 +77,7 @@ class TestMellanoxSensorDefs:
 
 
 class TestMellanoxDeviceInfo:
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="sw-bb-25g")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="sw-bb-25g")
     def test_node_id(self, _mock):
         c = make_mellanox()
         assert c.device.node_id == "sw_bb_25g"
@@ -98,7 +98,7 @@ class TestMellanoxDeviceInfo:
         c = make_mellanox()
         assert c.device.connections == (("mac", "1c:34:da:42:e8:8c"),)
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="sw-bb-25g")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="sw-bb-25g")
     def test_backwards_compatible_topics(self, _mock):
         c = make_mellanox()
         assert c.state_topic == "sensors2mqtt/sw_bb_25g/state"
