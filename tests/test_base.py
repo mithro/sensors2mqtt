@@ -174,6 +174,44 @@ class TestBasePublisher:
         )
 
 
+class TestHostId:
+    """host_id() namespaces client-ids and bridge topics per host, so multiple
+    daemons of the same kind on different hosts don't collide on a shared broker.
+    """
+
+    @patch("sensors2mqtt.base.socket.gethostname")
+    def test_strips_domain(self, gethost):
+        from sensors2mqtt.base import host_id
+        gethost.return_value = "ten64.welland.mithis.com"
+        assert host_id() == "ten64"
+
+    @patch("sensors2mqtt.base.socket.gethostname")
+    def test_dashes_to_underscores(self, gethost):
+        from sensors2mqtt.base import host_id
+        gethost.return_value = "rpi-sdr-kraken"
+        assert host_id() == "rpi_sdr_kraken"
+
+
+class TestClientIdFor:
+    """client_id_for builds the one consistent connection identity for every
+    collector: ``sensors2mqtt-{host}-{module}`` where {host} is host_id(). Two
+    daemons of the same kind on different hosts get distinct client-ids, so the
+    broker never takes one over for the other.
+    """
+
+    @patch("sensors2mqtt.base.socket.gethostname")
+    def test_format_uses_short_host_and_module(self, gethost):
+        from sensors2mqtt.base import client_id_for
+        gethost.return_value = "ten64.welland.mithis.com"
+        assert client_id_for("snmp") == "sensors2mqtt-ten64-snmp"
+
+    @patch("sensors2mqtt.base.socket.gethostname")
+    def test_module_token_may_contain_dashes(self, gethost):
+        from sensors2mqtt.base import client_id_for
+        gethost.return_value = "ten64"
+        assert client_id_for("snmp-control") == "sensors2mqtt-ten64-snmp-control"
+
+
 class TestMakeClient:
     """make_client attaches connection-visibility callbacks.
 

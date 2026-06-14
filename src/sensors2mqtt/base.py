@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import socket
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -40,6 +41,34 @@ class MqttConfig:
             password=os.environ.get("MQTT_PASSWORD", cls.password),
             poll_interval=int(os.environ.get("POLL_INTERVAL", str(cls.poll_interval))),
         )
+
+
+def host_id() -> str:
+    """The host's node_id: short hostname, dashes -> underscores (e.g. ``ten64``).
+
+    This is the single, consistent host identifier used everywhere: it is the
+    device node_id for the host-local collectors (local, ipmi, hwmon) and the
+    ``{host}`` segment of every collector's client-id (see ``client_id_for``).
+
+    It is deliberately the *short* hostname for now. Two machines that share a
+    short hostname (e.g. a ``ten64`` at two sites) would therefore collide if
+    both ever connect to the same broker; making this globally unique is a
+    separate, later decision.
+    """
+    return socket.gethostname().split(".", 1)[0].replace("-", "_")
+
+
+def client_id_for(module: str) -> str:
+    """MQTT client-id for a collector: ``sensors2mqtt-{host}-{module}``.
+
+    ``{host}`` is :func:`host_id`, so every daemon on a host gets a distinct,
+    stable connection identity (e.g. ``sensors2mqtt-ten64-snmp``). Two daemons
+    of the same kind on different hosts never present the same client-id, which
+    is what stops the broker from kicking one connection to take over the other
+    in a reconnect loop. ``module`` names the collector and may contain dashes
+    (``local``, ``snmp``, ``snmp-control``, ``ipmi-sensors``, ``hwmon``).
+    """
+    return f"sensors2mqtt-{host_id()}-{module}"
 
 
 def make_client(
