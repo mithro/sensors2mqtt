@@ -118,6 +118,8 @@ class PoeController:
 
         self._client: mqtt.Client | None = None
         self._stop_event = threading.Event()
+        self._connected = threading.Event()
+        self._once = False
         self._executor = ThreadPoolExecutor(max_workers=4)
 
     def _snmpget_int(self, switch: SwitchConfig, oid: str, port: int) -> int | None:
@@ -549,6 +551,26 @@ class PoeController:
         self._client.unsubscribe(topic)
         self._client.message_callback_remove(topic)
 
+    def _subscribe_commands(self, client: mqtt.Client) -> None:
+        """(Re)subscribe to every switch's PoE command topics.
+
+        Runs on each successful (re)connect (via make_client's on_connect). The
+        broker drops subscriptions on disconnect with a clean session, so
+        without this a reconnect would silently stop delivering commands while
+        polling and state publishing kept working.
+        """
+        for sw in self.switches:
+            client.subscribe(f"sensors2mqtt/{sw.node_id}/port/+/poe/set")
+            client.subscribe(f"sensors2mqtt/{sw.node_id}/port/+/poe/cycle")
+            client.subscribe(f"sensors2mqtt/{sw.node_id}/port/+/poe/force/set")
+            log.info("%s: subscribed to command topics", sw.name)
+
+    def _on_mqtt_connected(self, client: mqtt.Client) -> None:
+        """Called on each successful MQTT (re)connect (from make_client)."""
+        self._connected.set()
+        if not self._once:
+            self._subscribe_commands(client)
+
     def run(self, once: bool = False) -> None:
         """Main entry point: connect MQTT, poll, handle commands."""
         if not self.switches:
@@ -559,7 +581,12 @@ class PoeController:
                  len(self.switches),
                  ", ".join(s.name for s in self.switches))
 
-        client = make_client(self.mqtt_config, "sensors2mqtt-snmp-control")
+        self._once = once
+        self._connected.clear()
+        client = make_client(
+            self.mqtt_config, "sensors2mqtt-snmp-control",
+            on_connected=self._on_mqtt_connected,
+        )
         client.on_message = self._on_message
         self._client = client
 
@@ -569,17 +596,16 @@ class PoeController:
         client.loop_start()
 
         try:
+            # Command-topic subscriptions are (re)established from
+            # _on_mqtt_connected on every connect. Wait for the first connect so
+            # the retained force-override read below actually subscribes (a
+            # subscribe issued before CONNACK is silently dropped).
+            if not self._connected.wait(timeout=10):
+                log.warning("MQTT not connected within 10s; startup reads may be incomplete")
+
             # Read back retained force overrides
             for sw in self.switches:
                 self._read_force_overrides(sw)
-
-            # Subscribe to command topics
-            if not once:
-                for sw in self.switches:
-                    client.subscribe(f"sensors2mqtt/{sw.node_id}/port/+/poe/set")
-                    client.subscribe(f"sensors2mqtt/{sw.node_id}/port/+/poe/cycle")
-                    client.subscribe(f"sensors2mqtt/{sw.node_id}/port/+/poe/force/set")
-                    log.info("%s: subscribed to command topics", sw.name)
 
             # Fetch LLDP chassis MACs for per-port device connections
             port_chassis_macs: dict[str, dict[int, str]] = {}

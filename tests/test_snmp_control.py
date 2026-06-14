@@ -45,6 +45,45 @@ def _make_controller(switches=None):
     return ctrl
 
 
+class TestCommandResubscription:
+    """Command-topic subscriptions must be re-established on every reconnect.
+
+    The broker drops subscriptions on disconnect (clean session) and paho does
+    not resubscribe, so subscribing once at startup means a reconnect silently
+    stops command delivery while polling/publishing keep working. The handler is
+    wired to make_client's on_connect, which fires on every (re)connect.
+    """
+
+    def test_subscribe_commands_covers_all_topics_for_every_switch(self):
+        ctrl = _make_controller(switches=[
+            _make_switch("sw-a", "gsm7252ps", write_community="private"),
+            _make_switch("sw-b", "gsm7252ps", write_community="private"),
+        ])
+        client = MagicMock()
+        ctrl._subscribe_commands(client)
+        subscribed = {c.args[0] for c in client.subscribe.call_args_list}
+        for node in ("sw_a", "sw_b"):
+            assert f"sensors2mqtt/{node}/port/+/poe/set" in subscribed
+            assert f"sensors2mqtt/{node}/port/+/poe/cycle" in subscribed
+            assert f"sensors2mqtt/{node}/port/+/poe/force/set" in subscribed
+
+    def test_on_connect_resubscribes_and_signals_connected(self):
+        ctrl = _make_controller()
+        ctrl._once = False
+        client = MagicMock()
+        ctrl._on_mqtt_connected(client)
+        assert ctrl._connected.is_set()
+        assert client.subscribe.called
+
+    def test_on_connect_in_once_mode_signals_but_skips_subscribe(self):
+        ctrl = _make_controller()
+        ctrl._once = True
+        client = MagicMock()
+        ctrl._on_mqtt_connected(client)
+        assert ctrl._connected.is_set()
+        assert not client.subscribe.called
+
+
 # ---------------------------------------------------------------------------
 # PortControlState tests
 # ---------------------------------------------------------------------------
