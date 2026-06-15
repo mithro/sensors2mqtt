@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from sensors2mqtt.base import MqttConfig
 from sensors2mqtt.collector.snmp import MODELS, SwitchConfig
 from sensors2mqtt.collector.snmp_control import (
+    _LEGACY_BRIDGE_TOPIC,
     IF_OPER_OID,
     POE_ADMIN_OID,
     POE_DETECT_OID,
@@ -84,32 +85,68 @@ class TestCommandResubscription:
         assert not client.subscribe.called
 
 
-class TestBridgeAvailability:
-    """One MQTT connection serves many switches, so a single Last-Will can't
-    cover each switch's status topic. A per-collector bridge topic is the will,
-    and every control entity lists it (mode "all") so HA marks them unavailable
-    if the control service dies.
+class TestConnectionAvailability:
+    """snmp_control uses a per-host connection topic (not a fixed bridge).
+
+    The per-host connection topic is the Last-Will and the per-cycle heartbeat.
+    Control entities list only the switch-level status and (for toggle/cycle)
+    the per-port PoE available topic — no bridge topic.
     """
 
-    def test_on_connect_publishes_bridge_online(self):
-        from sensors2mqtt.collector.snmp_control import SNMP_CONTROL_BRIDGE_TOPIC
+    def test_on_connect_publishes_connection_online(self):
+        """_on_mqtt_connected publishes the per-host connection topic online."""
+        conn_topic = "sensors2mqtt/testhost/snmp_control/status"
         ctrl = _make_controller()
         ctrl._once = False
         client = MagicMock()
-        ctrl._on_mqtt_connected(client)
-        client.publish.assert_any_call(SNMP_CONTROL_BRIDGE_TOPIC, "online", retain=True)
+        with patch(
+            "sensors2mqtt.collector.snmp_control.connection_status_topic",
+            return_value=conn_topic,
+        ), patch(
+            "sensors2mqtt.collector.snmp_control.publish_connection_diagnostic",
+        ), patch(
+            "sensors2mqtt.collector.snmp_control.host_id", return_value="testhost",
+        ), patch(
+            "sensors2mqtt.collector.snmp_control.socket",
+        ) as mock_socket:
+            mock_socket.gethostname.return_value = "testhost"
+            ctrl._on_mqtt_connected(client)
+        client.publish.assert_any_call(conn_topic, "online", retain=True)
 
-    def test_every_entity_lists_bridge_in_availability(self):
-        from sensors2mqtt.collector.snmp_control import SNMP_CONTROL_BRIDGE_TOPIC
+    def test_toggle_availability_has_no_bridge(self):
+        """Toggle availability: switch status + per-port available, no bridge."""
         ctrl = _make_controller()
         sw = ctrl.switches[0]
         ctrl.publish_discovery(sw)
-        payloads = [json.loads(c.args[1]) for c in ctrl._client.publish.call_args_list]
-        assert payloads  # discovery published something
-        for p in payloads:
-            topics = [a["topic"] for a in p["availability"]]
-            assert SNMP_CONTROL_BRIDGE_TOPIC in topics
-            assert p["availability_mode"] == "all"
+        toggles = [
+            json.loads(c.args[1]) for c in ctrl._client.publish.call_args_list
+            if "poe_toggle/config" in c.args[0]
+        ]
+        assert toggles
+        for cfg in toggles:
+            topics = [a["topic"] for a in cfg["availability"]]
+            assert f"sensors2mqtt/{sw.node_id}/status" in topics
+            assert any("/port/" in t for t in topics)
+            assert all("bridge" not in t for t in topics)
+            assert cfg["availability_mode"] == "all"
+
+    def test_force_availability_is_switch_status_only(self):
+        """Force override availability: switch status only (single topic, no list)."""
+        ctrl = _make_controller()
+        sw = ctrl.switches[0]
+        ctrl.publish_discovery(sw)
+        forces = [
+            json.loads(c.args[1]) for c in ctrl._client.publish.call_args_list
+            if "poe_force/config" in c.args[0]
+        ]
+        assert forces
+        for cfg in forces:
+            assert cfg["availability_topic"] == f"sensors2mqtt/{sw.node_id}/status"
+            assert "availability" not in cfg
+
+    def test_legacy_bridge_topic_constant_exists(self):
+        """Legacy bridge topic constant still exists for one-time cleanup."""
+        assert _LEGACY_BRIDGE_TOPIC == "sensors2mqtt/snmp_control_bridge/status"
 
 
 # ---------------------------------------------------------------------------
@@ -475,9 +512,8 @@ class TestDiscovery:
             retain = c[1].get("retain", False)
             assert retain is True, f"Discovery not retained: {c[0][0]}"
 
-    def test_toggle_availability_covers_switch_port_and_bridge(self):
-        """Toggle/cycle availability spans switch + per-port + collector bridge."""
-        from sensors2mqtt.collector.snmp_control import SNMP_CONTROL_BRIDGE_TOPIC
+    def test_toggle_availability_covers_switch_and_port_only(self):
+        """Toggle availability spans switch status + per-port (no bridge)."""
         ctrl = _make_controller()
         sw = ctrl.switches[0]
         ctrl.publish_discovery(sw)
@@ -490,7 +526,7 @@ class TestDiscovery:
         topics = [a["topic"] for a in payload["availability"]]
         assert f"sensors2mqtt/{sw.node_id}/status" in topics      # switch
         assert any("/port/" in t for t in topics)                 # per-port
-        assert SNMP_CONTROL_BRIDGE_TOPIC in topics                # collector bridge
+        assert all("bridge" not in t for t in topics)             # no bridge
 
 
 # ---------------------------------------------------------------------------

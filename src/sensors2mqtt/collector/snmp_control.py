@@ -17,6 +17,7 @@ import json
 import logging
 import re
 import signal
+import socket
 import subprocess
 import threading
 import time
@@ -26,7 +27,13 @@ from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
-from sensors2mqtt.base import MqttConfig, client_id_for, make_client
+from sensors2mqtt.base import (
+    MqttConfig,
+    client_id_for,
+    connection_status_topic,
+    host_id,
+    make_client,
+)
 from sensors2mqtt.collector.snmp import (
     SwitchConfig,
     _build_port_device,
@@ -34,13 +41,15 @@ from sensors2mqtt.collector.snmp import (
     load_config,
     parse_snmpget_value,
 )
-from sensors2mqtt.discovery import ORIGIN, availability_config, device_dict
+from sensors2mqtt.discovery import (
+    ORIGIN,
+    availability_config,
+    device_dict,
+    publish_connection_diagnostic,
+)
 
-# Per-collector bridge availability topic (one MQTT connection, many switches).
-# It is this connection's Last-Will; every control entity lists it
-# (availability_mode "all") so Home Assistant marks them unavailable if the PoE
-# control service dies ungracefully. See task: bridge availability.
-SNMP_CONTROL_BRIDGE_TOPIC = "sensors2mqtt/snmp_control_bridge/status"
+# Legacy fixed bridge topic (pre multi-host). Cleared on startup; no longer used.
+_LEGACY_BRIDGE_TOPIC = "sensors2mqtt/snmp_control_bridge/status"
 
 log = logging.getLogger(__name__)
 
@@ -457,7 +466,7 @@ class PoeController:
                 "state_on": "ON",
                 "state_off": "OFF",
                 "device": port_dev_dict,
-                **availability_config(avail_topic, port_avail, SNMP_CONTROL_BRIDGE_TOPIC),
+                **availability_config(avail_topic, port_avail),
                 "origin": ORIGIN,
                 "icon": "mdi:lightning-bolt",
             }
@@ -474,7 +483,7 @@ class PoeController:
                 "command_topic": f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/cycle",
                 "payload_press": "PRESS",
                 "device": port_dev_dict,
-                **availability_config(avail_topic, port_avail, SNMP_CONTROL_BRIDGE_TOPIC),
+                **availability_config(avail_topic, port_avail),
                 "origin": ORIGIN,
                 "icon": "mdi:restart",
             }
@@ -495,7 +504,7 @@ class PoeController:
                 "state_on": "ON",
                 "state_off": "OFF",
                 "device": port_dev_dict,
-                **availability_config(avail_topic, SNMP_CONTROL_BRIDGE_TOPIC),
+                **availability_config(avail_topic),
                 "entity_category": "config",
                 "origin": ORIGIN,
                 "icon": "mdi:shield-key",
@@ -560,7 +569,9 @@ class PoeController:
     def _on_mqtt_connected(self, client: mqtt.Client) -> None:
         """Called on each successful MQTT (re)connect (from make_client)."""
         self._connected.set()
-        client.publish(SNMP_CONTROL_BRIDGE_TOPIC, "online", retain=True)
+        conn_topic = connection_status_topic("snmp_control")
+        client.publish(conn_topic, "online", retain=True)
+        publish_connection_diagnostic(client, host_id(), "snmp_control", socket.gethostname())
         if not self._once:
             self._subscribe_commands(client)
 
@@ -576,10 +587,11 @@ class PoeController:
 
         self._once = once
         self._connected.clear()
+        conn_topic = connection_status_topic("snmp_control")
         client = make_client(
-            self.mqtt_config, client_id_for("snmp-control"),
+            self.mqtt_config, client_id_for("snmp_control"),
             on_connected=self._on_mqtt_connected,
-            will_topic=SNMP_CONTROL_BRIDGE_TOPIC,
+            will_topic=conn_topic,
         )
         client.on_message = self._on_message
         self._client = client
@@ -588,6 +600,7 @@ class PoeController:
                  self.mqtt_config.host, self.mqtt_config.port)
         client.connect(self.mqtt_config.host, self.mqtt_config.port, keepalive=120)
         client.loop_start()
+        client.publish(_LEGACY_BRIDGE_TOPIC, "", retain=True)  # one-time cleanup
 
         try:
             # Command-topic subscriptions are (re)established from
@@ -631,11 +644,12 @@ class PoeController:
                     self.poll_all_ports(sw)
                     self.publish_all_poe_states(sw)
                     self.publish_availability(sw)
+                client.publish(conn_topic, "online", retain=True)  # heartbeat
 
         finally:
             for sw in self.switches:
                 client.publish(f"sensors2mqtt/{sw.node_id}/status", "offline", retain=True)
-            client.publish(SNMP_CONTROL_BRIDGE_TOPIC, "offline", retain=True)
+            client.publish(conn_topic, "offline", retain=True)
             self._executor.shutdown(wait=False)
             client.disconnect()
             client.loop_stop()
