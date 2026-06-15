@@ -14,6 +14,12 @@ import paho.mqtt.client as mqtt
 
 DISCOVERY_PREFIX = "homeassistant"
 
+# Seconds after which HA marks a push entity unavailable if no fresh state arrives.
+# Connection-agnostic freshness: any host publishing keeps a shared entity alive;
+# all silent -> it expires. Generous enough that a slow sequential SNMP poll cycle
+# never flaps an entity.
+EXPIRE_AFTER = 300
+
 ORIGIN = {
     "name": "sensors2mqtt",
     "sw": version("sensors2mqtt"),
@@ -100,7 +106,6 @@ def discovery_payload(
     device: DeviceInfo,
     state_topic: str,
     avail_topic: str,
-    bridge_topic: str | None = None,
 ) -> dict:
     """Build HA auto-discovery config payload for a sensor."""
     config = {
@@ -110,7 +115,8 @@ def discovery_payload(
         "value_template": f"{{{{ value_json.{sensor.suffix} }}}}",
         "unit_of_measurement": sensor.unit,
         "device": device_dict(device),
-        **availability_config(avail_topic, bridge_topic),
+        "expire_after": EXPIRE_AFTER,
+        **availability_config(avail_topic),
         "origin": ORIGIN,
     }
     if sensor.state_class:
@@ -130,12 +136,11 @@ def publish_discovery(
     device: DeviceInfo,
     state_topic: str,
     avail_topic: str,
-    bridge_topic: str | None = None,
 ) -> int:
     """Publish HA auto-discovery configs for all sensors. Returns count published."""
     for sensor in sensors:
         config_topic = f"{DISCOVERY_PREFIX}/sensor/{device.node_id}/{sensor.suffix}/config"
-        payload = discovery_payload(sensor, device, state_topic, avail_topic, bridge_topic)
+        payload = discovery_payload(sensor, device, state_topic, avail_topic)
         client.publish(config_topic, json.dumps(payload), retain=True)
     return len(sensors)
 
@@ -150,9 +155,11 @@ def device_dict(device: DeviceInfo) -> dict:
     d: dict = {
         "identifiers": [f"sensors2mqtt_{device.node_id}"],
         "name": device.name,
-        "manufacturer": device.manufacturer,
-        "model": device.model,
     }
+    if device.manufacturer and device.manufacturer != "Unknown":
+        d["manufacturer"] = device.manufacturer
+    if device.model and device.model != "Unknown":
+        d["model"] = device.model
     if device.configuration_url:
         d["configuration_url"] = device.configuration_url
     if device.connections:
@@ -160,3 +167,31 @@ def device_dict(device: DeviceInfo) -> dict:
     if device.via_device:
         d["via_device"] = device.via_device
     return d
+
+
+def publish_connection_diagnostic(
+    client: mqtt.Client, host: str, module: str, hostname: str
+) -> None:
+    """Publish a per-host, per-daemon connectivity binary_sensor.
+
+    Attaches to the host's device (identifiers + name only, so it never clobbers
+    the manufacturer/model that a hardware-aware collector sets). Its state is the
+    daemon's connection status topic, which is the daemon's Last-Will + per-cycle
+    heartbeat. Surfaces "which daemon on which host is alive" without gating any
+    shared device.
+    """
+    status_topic = f"sensors2mqtt/{host}/{module}/status"
+    config = {
+        "name": module,
+        "unique_id": f"{host}_{module}_connection",
+        "state_topic": status_topic,
+        "payload_on": "online",
+        "payload_off": "offline",
+        "device_class": "connectivity",
+        "entity_category": "diagnostic",
+        "expire_after": EXPIRE_AFTER,
+        "device": {"identifiers": [f"sensors2mqtt_{host}"], "name": hostname},
+        "origin": ORIGIN,
+    }
+    config_topic = f"{DISCOVERY_PREFIX}/binary_sensor/{host}/{module}_connection/config"
+    client.publish(config_topic, json.dumps(config), retain=True)

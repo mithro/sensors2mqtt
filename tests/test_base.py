@@ -64,8 +64,8 @@ class StubPublisher(BasePublisher):
         return DeviceInfo(node_id="test", name="test", manufacturer="Test", model="T1")
 
     @property
-    def client_id(self):
-        return "test-publisher"
+    def module(self):
+        return "stub"
 
     def poll(self):
         self.poll_count += 1
@@ -73,10 +73,16 @@ class StubPublisher(BasePublisher):
 
 
 class TestBasePublisher:
-    def test_topics(self):
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="ten64")
+    def test_topics_include_module(self, _gh):
         pub = StubPublisher(config=MqttConfig())
-        assert pub.state_topic == "sensors2mqtt/test/state"
-        assert pub.avail_topic == "sensors2mqtt/test/status"
+        assert pub.state_topic == "sensors2mqtt/test/stub/state"
+        assert pub.avail_topic == "sensors2mqtt/test/stub/status"
+
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="ten64")
+    def test_client_id_from_module(self, _gh):
+        pub = StubPublisher(config=MqttConfig())
+        assert pub.client_id == "sensors2mqtt-ten64-stub"
 
     @patch("sensors2mqtt.base.mqtt.Client")
     def test_poll_once_success(self, MockClient):
@@ -101,7 +107,7 @@ class TestBasePublisher:
         assert pub._discovery_published is False
         # Only offline availability published
         mock_client.publish.assert_called_once_with(
-            "sensors2mqtt/test/status", "offline", retain=True,
+            "sensors2mqtt/test/stub/status", "offline", retain=True,
         )
 
     @patch("sensors2mqtt.base.mqtt.Client")
@@ -146,7 +152,7 @@ class TestBasePublisher:
         assert pub.poll_count >= 1
         # Verify cleanup: offline + disconnect
         mock_instance.publish.assert_any_call(
-            "sensors2mqtt/test/status", "offline", retain=True,
+            "sensors2mqtt/test/stub/status", "offline", retain=True,
         )
         mock_instance.disconnect.assert_called_once()
         mock_instance.loop_stop.assert_called_once()
@@ -170,8 +176,81 @@ class TestBasePublisher:
         t.join(timeout=5)
 
         mock_instance.will_set.assert_called_once_with(
-            "sensors2mqtt/test/status", payload="offline", retain=True,
+            "sensors2mqtt/test/stub/status", payload="offline", retain=True,
         )
+
+    @patch("sensors2mqtt.base.publish_connection_diagnostic")
+    @patch("sensors2mqtt.base.mqtt.Client")
+    def test_run_clears_legacy_topics_and_publishes_diagnostic(self, MockClient, mock_diag):
+        """run() clears the pre-module retained topics and publishes the per-host
+        connection diagnostic on startup."""
+        mock_instance = MagicMock()
+        MockClient.return_value = mock_instance
+
+        pub = StubPublisher(poll_values={"temp": 42.0}, config=MqttConfig(poll_interval=60))
+
+        def stop_after_delay():
+            while pub.poll_count < 1:
+                pass
+            pub._stop_event.set()
+
+        t = threading.Thread(target=stop_after_delay)
+        t.start()
+        pub.run()
+        t.join(timeout=5)
+
+        # Legacy (pre-module) retained topics cleared with empty payloads.
+        mock_instance.publish.assert_any_call("sensors2mqtt/test/state", "", retain=True)
+        mock_instance.publish.assert_any_call("sensors2mqtt/test/status", "", retain=True)
+        # Per-host connection diagnostic published once with node_id/module/name.
+        mock_diag.assert_called_once_with(mock_instance, "test", "stub", "test")
+
+
+class TestConnectionStatusTopic:
+    @patch("sensors2mqtt.base.socket.gethostname")
+    def test_topic(self, gethost):
+        from sensors2mqtt.base import connection_status_topic
+        gethost.return_value = "ten64.welland.mithis.com"
+        assert connection_status_topic("snmp") == "sensors2mqtt/ten64/snmp/status"
+
+
+class TestHostId:
+    """host_id() namespaces client-ids and connection status topics per host, so
+    multiple daemons of the same kind on different hosts don't collide on a shared
+    broker.
+    """
+
+    @patch("sensors2mqtt.base.socket.gethostname")
+    def test_strips_domain(self, gethost):
+        from sensors2mqtt.base import host_id
+        gethost.return_value = "ten64.welland.mithis.com"
+        assert host_id() == "ten64"
+
+    @patch("sensors2mqtt.base.socket.gethostname")
+    def test_dashes_to_underscores(self, gethost):
+        from sensors2mqtt.base import host_id
+        gethost.return_value = "rpi-sdr-kraken"
+        assert host_id() == "rpi_sdr_kraken"
+
+
+class TestClientIdFor:
+    """client_id_for builds the one consistent connection identity for every
+    collector: ``sensors2mqtt-{host}-{module}`` where {host} is host_id(). Two
+    daemons of the same kind on different hosts get distinct client-ids, so the
+    broker never takes one over for the other.
+    """
+
+    @patch("sensors2mqtt.base.socket.gethostname")
+    def test_format_uses_short_host_and_module(self, gethost):
+        from sensors2mqtt.base import client_id_for
+        gethost.return_value = "ten64.welland.mithis.com"
+        assert client_id_for("snmp") == "sensors2mqtt-ten64-snmp"
+
+    @patch("sensors2mqtt.base.socket.gethostname")
+    def test_compound_module_token(self, gethost):
+        from sensors2mqtt.base import client_id_for
+        gethost.return_value = "ten64"
+        assert client_id_for("snmp_control") == "sensors2mqtt-ten64-snmp_control"
 
 
 class TestMakeClient:

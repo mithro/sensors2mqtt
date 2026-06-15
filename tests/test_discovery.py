@@ -169,10 +169,9 @@ class TestPublishState:
 class TestAvailabilityConfig:
     """availability_config builds HA availability from one or more topics.
 
-    Multi-device collectors (one MQTT connection, many switches) add a per-
-    collector bridge topic so the bridge Last-Will marks every entity
-    unavailable if the collector dies, while a single unreachable device still
-    marks only its own entities unavailable.
+    One topic -> a single availability_topic; multiple -> an availability list
+    with availability_mode (e.g. a PoE control entity that depends on both the
+    switch status and its port's PoE-available topic).
     """
 
     def test_single_topic_uses_availability_topic(self):
@@ -198,15 +197,40 @@ class TestAvailabilityConfig:
         assert cfg["availability_topic"] == "sensors2mqtt/x/status"
         assert "availability" not in cfg
 
-    def test_discovery_payload_with_bridge_lists_both(self):
-        payload = discovery_payload(
-            make_sensor(), make_device(),
-            state_topic="sensors2mqtt/test_device/state",
-            avail_topic="sensors2mqtt/test_device/status",
-            bridge_topic="sensors2mqtt/snmp_bridge/status",
-        )
-        assert payload["availability_mode"] == "all"
-        assert [a["topic"] for a in payload["availability"]] == [
-            "sensors2mqtt/test_device/status", "sensors2mqtt/snmp_bridge/status",
-        ]
-        assert "availability_topic" not in payload
+
+
+def test_discovery_payload_emits_expire_after():
+    from sensors2mqtt.discovery import EXPIRE_AFTER, DeviceInfo, SensorDef, discovery_payload
+    sensor = SensorDef("temp", "Temp", "°C", device_class="temperature")
+    device = DeviceInfo(node_id="x", name="x", manufacturer="x", model="x")
+    cfg = discovery_payload(sensor, device, "s2m/x/state", "s2m/x/status")
+    assert cfg["expire_after"] == EXPIRE_AFTER == 300
+
+
+def test_publish_connection_diagnostic_shape():
+    import json
+    from unittest.mock import MagicMock
+
+    from sensors2mqtt.discovery import EXPIRE_AFTER, publish_connection_diagnostic
+    client = MagicMock()
+    publish_connection_diagnostic(client, "ten64", "snmp", "ten64")
+    topic, payload = client.publish.call_args[0][0], client.publish.call_args[0][1]
+    assert topic == "homeassistant/binary_sensor/ten64/snmp_connection/config"
+    cfg = json.loads(payload)
+    assert cfg["state_topic"] == "sensors2mqtt/ten64/snmp/status"
+    assert cfg["device_class"] == "connectivity"
+    assert cfg["entity_category"] == "diagnostic"
+    assert cfg["unique_id"] == "ten64_snmp_connection"
+    assert cfg["payload_on"] == "online" and cfg["payload_off"] == "offline"
+    assert cfg["expire_after"] == EXPIRE_AFTER
+    assert cfg["device"]["identifiers"] == ["sensors2mqtt_ten64"]
+    assert cfg["device"]["name"] == "ten64"
+    assert "manufacturer" not in cfg["device"]  # identifiers+name only, no clobber
+
+
+def test_device_dict_omits_unknown_metadata():
+    from sensors2mqtt.discovery import DeviceInfo, device_dict
+    d = device_dict(DeviceInfo(node_id="x", name="x", manufacturer="Unknown", model="Unknown"))
+    assert "manufacturer" not in d and "model" not in d  # generic collector won't clobber
+    d2 = device_dict(DeviceInfo(node_id="y", name="y", manufacturer="Supermicro", model="X11DSC+"))
+    assert d2["manufacturer"] == "Supermicro" and d2["model"] == "X11DSC+"

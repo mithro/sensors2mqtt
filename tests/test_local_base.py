@@ -190,7 +190,7 @@ class TestReadMac:
 
 
 class TestDeviceIdentification:
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="rpi5-pmod")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="rpi5-pmod")
     def test_node_id_from_hostname(self, _mock):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
         assert c.device.node_id == "rpi5_pmod"
@@ -228,8 +228,11 @@ class TestConfigLoading:
         )
         assert c.device.via_device == "sensors2mqtt_sw_netgear_gsm7252ps_s1"
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="original")
-    def test_node_id_override_from_config(self, _mock, tmp_path):
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="original")
+    def test_node_id_config_override_is_ignored(self, _mock, tmp_path):
+        # node_id is no longer configurable: it always derives from the hostname
+        # (one consistent host-id form everywhere). A stray node_id key in
+        # local.toml must have no effect.
         config_file = tmp_path / "local.toml"
         config_file.write_text('node_id = "custom_id"\n')
         c = LocalCollector(
@@ -237,9 +240,9 @@ class TestConfigLoading:
             config_path=config_file,
             sysfs_root=str(FIXTURES / "rpi5_sysfs"),
         )
-        assert c.device.node_id == "custom_id"
+        assert c.device.node_id == "original"
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="test")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="test")
     def test_missing_config_uses_defaults(self, _mock):
         c = LocalCollector(
             config=make_config(),
@@ -312,20 +315,20 @@ class TestPoll:
 
 
 class TestTopics:
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="rpi5-pmod")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="rpi5-pmod")
     def test_client_id(self, _mock):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
-        assert c.client_id == "sensors2mqtt-local-rpi5_pmod"
+        assert c.client_id == "sensors2mqtt-rpi5_pmod-local"
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="rpi5-pmod")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="rpi5-pmod")
     def test_state_topic(self, _mock):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
-        assert c.state_topic == "sensors2mqtt/rpi5_pmod/state"
+        assert c.state_topic == "sensors2mqtt/rpi5_pmod/local/state"
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="rpi5-pmod")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="rpi5-pmod")
     def test_avail_topic(self, _mock):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
-        assert c.avail_topic == "sensors2mqtt/rpi5_pmod/status"
+        assert c.avail_topic == "sensors2mqtt/rpi5_pmod/local/status"
 
 
 # ---------------------------------------------------------------------------
