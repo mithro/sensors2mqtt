@@ -71,8 +71,9 @@ def client_id_for(module: str) -> str:
     stable connection identity (e.g. ``sensors2mqtt-ten64-snmp``). Two daemons
     of the same kind on different hosts never present the same client-id, which
     is what stops the broker from kicking one connection to take over the other
-    in a reconnect loop. ``module`` names the collector and may contain dashes
-    (``local``, ``snmp``, ``snmp-control``, ``ipmi-sensors``, ``hwmon``).
+    in a reconnect loop. ``module`` names the collector, spelled with underscores
+    to match the Python module (``local``, ``snmp``, ``snmp_control``,
+    ``ipmi_sensors``, ``hwmon``) — the same token used in its topics.
     """
     return f"sensors2mqtt-{host_id()}-{module}"
 

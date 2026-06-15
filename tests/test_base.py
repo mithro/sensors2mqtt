@@ -215,8 +215,9 @@ class TestConnectionStatusTopic:
 
 
 class TestHostId:
-    """host_id() namespaces client-ids and bridge topics per host, so multiple
-    daemons of the same kind on different hosts don't collide on a shared broker.
+    """host_id() namespaces client-ids and connection status topics per host, so
+    multiple daemons of the same kind on different hosts don't collide on a shared
+    broker.
     """
 
     @patch("sensors2mqtt.base.socket.gethostname")
@@ -246,10 +247,10 @@ class TestClientIdFor:
         assert client_id_for("snmp") == "sensors2mqtt-ten64-snmp"
 
     @patch("sensors2mqtt.base.socket.gethostname")
-    def test_module_token_may_contain_dashes(self, gethost):
+    def test_compound_module_token(self, gethost):
         from sensors2mqtt.base import client_id_for
         gethost.return_value = "ten64"
-        assert client_id_for("snmp-control") == "sensors2mqtt-ten64-snmp-control"
+        assert client_id_for("snmp_control") == "sensors2mqtt-ten64-snmp_control"
 
 
 class TestMakeClient:

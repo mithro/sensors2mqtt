@@ -169,10 +169,9 @@ class TestPublishState:
 class TestAvailabilityConfig:
     """availability_config builds HA availability from one or more topics.
 
-    Multi-device collectors (one MQTT connection, many switches) add a per-
-    collector bridge topic so the bridge Last-Will marks every entity
-    unavailable if the collector dies, while a single unreachable device still
-    marks only its own entities unavailable.
+    One topic -> a single availability_topic; multiple -> an availability list
+    with availability_mode (e.g. a PoE control entity that depends on both the
+    switch status and its port's PoE-available topic).
     """
 
     def test_single_topic_uses_availability_topic(self):
