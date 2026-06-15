@@ -323,12 +323,12 @@ class TestTopics:
     @patch("sensors2mqtt.base.socket.gethostname", return_value="rpi5-pmod")
     def test_state_topic(self, _mock):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
-        assert c.state_topic == "sensors2mqtt/rpi5_pmod/state"
+        assert c.state_topic == "sensors2mqtt/rpi5_pmod/local/state"
 
     @patch("sensors2mqtt.base.socket.gethostname", return_value="rpi5-pmod")
     def test_avail_topic(self, _mock):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
-        assert c.avail_topic == "sensors2mqtt/rpi5_pmod/status"
+        assert c.avail_topic == "sensors2mqtt/rpi5_pmod/local/status"
 
 
 # ---------------------------------------------------------------------------

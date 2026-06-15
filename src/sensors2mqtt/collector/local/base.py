@@ -13,7 +13,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from sensors2mqtt.base import BasePublisher, MqttConfig, client_id_for, host_id
+from sensors2mqtt.base import BasePublisher, MqttConfig, host_id
 from sensors2mqtt.discovery import DeviceInfo, SensorDef
 
 log = logging.getLogger(__name__)
@@ -117,8 +117,8 @@ class LocalCollector(BasePublisher):
         return self._device_info
 
     @property
-    def client_id(self) -> str:
-        return client_id_for("local")
+    def module(self) -> str:
+        return "local"
 
     def poll(self) -> dict | None:
         """Read all probed sensors, return {suffix: value} dict."""
