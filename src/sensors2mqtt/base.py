@@ -16,7 +16,13 @@ from dataclasses import dataclass
 
 import paho.mqtt.client as mqtt
 
-from sensors2mqtt.discovery import DeviceInfo, SensorDef, publish_discovery, publish_state
+from sensors2mqtt.discovery import (
+    DeviceInfo,
+    SensorDef,
+    publish_connection_diagnostic,
+    publish_discovery,
+    publish_state,
+)
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +75,16 @@ def client_id_for(module: str) -> str:
     (``local``, ``snmp``, ``snmp-control``, ``ipmi-sensors``, ``hwmon``).
     """
     return f"sensors2mqtt-{host_id()}-{module}"
+
+
+def connection_status_topic(module: str) -> str:
+    """Per-host, per-daemon connection status topic (Last-Will + heartbeat).
+
+    ``sensors2mqtt/{host}/{module}/status`` — grouped under the host so all of a
+    machine's topics live together, and namespaced by module so two collectors on
+    one host never collide on a shared status topic.
+    """
+    return f"sensors2mqtt/{host_id()}/{module}/status"
 
 
 def make_client(
@@ -132,8 +148,8 @@ class BasePublisher(ABC):
             Property returning sensor definitions.
         device -> DeviceInfo
             Property returning device info for HA discovery.
-        client_id -> str
-            Property returning MQTT client ID.
+        module -> str
+            Property returning the collector's module token (e.g. 'local', 'hwmon').
     """
 
     def __init__(self, config: MqttConfig | None = None):
@@ -153,31 +169,46 @@ class BasePublisher(ABC):
 
     @property
     @abstractmethod
-    def client_id(self) -> str:
-        """MQTT client ID."""
+    def module(self) -> str:
+        """Module token (e.g. 'local', 'hwmon'); identifies this daemon."""
 
     @abstractmethod
     def poll(self) -> dict | None:
         """Poll sensors. Return {suffix: value} dict, or None on failure."""
 
     @property
+    def client_id(self) -> str:
+        return client_id_for(self.module)
+
+    @property
     def state_topic(self) -> str:
-        return f"sensors2mqtt/{self.device.node_id}/state"
+        return f"sensors2mqtt/{self.device.node_id}/{self.module}/state"
 
     @property
     def avail_topic(self) -> str:
-        return f"sensors2mqtt/{self.device.node_id}/status"
+        return f"sensors2mqtt/{self.device.node_id}/{self.module}/status"
 
     def run(self) -> None:
         """Main entry point: connect MQTT, poll in a loop, handle signals."""
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
 
+        # avail_topic == connection_status_topic(self.module) for host-local
+        # collectors (node_id == host_id()), so the Last-Will and the connection
+        # diagnostic published below share one topic.
         client = make_client(self.config, self.client_id, will_topic=self.avail_topic)
 
         log.info("Connecting to MQTT %s:%d", self.config.host, self.config.port)
         client.connect(self.config.host, self.config.port, keepalive=120)
         client.loop_start()
+
+        # One-time migration: clear legacy non-module-scoped retained topics.
+        client.publish(f"sensors2mqtt/{self.device.node_id}/state", "", retain=True)
+        client.publish(f"sensors2mqtt/{self.device.node_id}/status", "", retain=True)
+        # Per-daemon connection diagnostic on the host device.
+        publish_connection_diagnostic(
+            client, self.device.node_id, self.module, self.device.name
+        )
 
         try:
             while not self._stop_event.is_set():
