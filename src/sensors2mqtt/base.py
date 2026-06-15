@@ -53,7 +53,7 @@ def host_id() -> str:
     """The host's node_id: short hostname, dashes -> underscores (e.g. ``ten64``).
 
     This is the single, consistent host identifier used everywhere: it is the
-    device node_id for the host-local collectors (local, ipmi, hwmon) and the
+    device node_id for the host-local collectors (local, ipmi) and the
     ``{host}`` segment of every collector's client-id (see ``client_id_for``).
 
     It is deliberately the *short* hostname for now. Two machines that share a
@@ -73,7 +73,7 @@ def client_id_for(module: str) -> str:
     is what stops the broker from kicking one connection to take over the other
     in a reconnect loop. ``module`` names the collector, spelled with underscores
     to match the Python module (``local``, ``snmp``, ``snmp_control``,
-    ``ipmi_sensors``, ``hwmon``) — the same token used in its topics.
+    ``ipmi_sensors``) — the same token used in its topics.
     """
     return f"sensors2mqtt-{host_id()}-{module}"
 
@@ -150,7 +150,7 @@ class BasePublisher(ABC):
         device -> DeviceInfo
             Property returning device info for HA discovery.
         module -> str
-            Property returning the collector's module token (e.g. 'local', 'hwmon').
+            Property returning the collector's module token (e.g. 'local', 'ipmi_sensors').
     """
 
     def __init__(self, config: MqttConfig | None = None):
@@ -171,7 +171,7 @@ class BasePublisher(ABC):
     @property
     @abstractmethod
     def module(self) -> str:
-        """Module token (e.g. 'local', 'hwmon'); identifies this daemon."""
+        """Module token (e.g. 'local', 'ipmi_sensors'); identifies this daemon."""
 
     @abstractmethod
     def poll(self) -> dict | None:

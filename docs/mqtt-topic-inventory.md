@@ -5,7 +5,7 @@ subscribe to, the substitutions used in those topic templates, and what the
 payloads look like.
 
 Reflects the multi-host scheme on branch `multi-host-mqtt-safety`:
-`base.py`, `discovery.py`, and `collector/{snmp,snmp_control,ipmi_sensors,hwmon}.py`
+`base.py`, `discovery.py`, and `collector/{snmp,snmp_control,ipmi_sensors}.py`
 plus `collector/local/{base,rpi,mellanox}.py`.
 
 > **Two facts that apply to every row below**, so they are not repeated:
@@ -107,7 +107,7 @@ at startup**, and the readings flow continuously on the `state_topic`.
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | `{component}` | HA entity domain segment in the discovery path.                                                                                          | Chosen per entity type. One of `sensor`, `binary_sensor`, `switch`, `button`.                                                                              | `sensor`                                            |
 | `{host}`      | The host's node_id — short hostname, `-`→`_`. Used for host-local device topics and as the `{host}` in client-ids and connection topics. | `host_id()` = `socket.gethostname().split(".")[0].replace("-","_")` (`base.py`).                                                                           | `big_storage`, `ten64`, `rpi_sdr_kraken`            |
-| `{module}`    | Collector module token (= Python module basename, underscores).                                                                          | Per collector: `local`, `snmp`, `snmp_control`, `ipmi_sensors`, `hwmon`.                                                                                   | `ipmi_sensors`                                      |
+| `{module}`    | Collector module token (= Python module basename, underscores).                                                                          | Per collector: `local`, `snmp`, `snmp_control`, `ipmi_sensors`.                                                                                            | `ipmi_sensors`                                      |
 | `{sw}`        | A switch's node_id — a *shared* device key (not host-scoped).                                                                            | snmp.toml `[switches.<key>]` name with `-`→`_` (`snmp.py`).                                                                                                | key `sw-netgear-m4300-24x` → `sw_netgear_m4300_24x` |
 | `{NN}`        | Physical port number, **zero-padded to 2 digits** (`str(port).zfill(2)`), range `1..port_count`.                                         | `snmp.py` / `snmp_control.py`.                                                                                                                             | `01`, `24`, `48`                                    |
 | `{slot}`      | PSU slot number, 1-based integer (not padded).                                                                                           | `ipmi_sensors.py` PSU enumeration.                                                                                                                         | `1`, `2`                                            |
@@ -144,16 +144,16 @@ device **display name** is the raw hostname/switch name (e.g. `big-storage`,
 
 All Pub · retained · QoS 0. These carry the JSON discovery payloads described above.
 
-| Collector            | Topic template                                                  | Rendered example                                                     | Entity type              |
-| -------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------ |
-| local / ipmi / hwmon | `homeassistant/sensor/{host}/{suffix}/config`                   | `homeassistant/sensor/big_storage/cpu1_temp/config`                  | device sensor            |
-| ipmi (PSU)           | `homeassistant/sensor/{host}/psu{slot}_{suffix}/config`         | `homeassistant/sensor/big_storage/psu1_ac_input_voltage/config`      | PSU sensor               |
-| **every daemon**     | `homeassistant/binary_sensor/{host}/{module}_connection/config` | `homeassistant/binary_sensor/ten64/snmp_connection/config`           | connectivity diagnostic  |
-| snmp (hardware)      | `homeassistant/sensor/{sw}/{suffix}/config`                     | `homeassistant/sensor/sw_netgear_m4300_24x/psu_power/config`         | switch sensor            |
-| snmp (per-port)      | `homeassistant/sensor/{sw}/port{NN}_{pkey}/config`              | `homeassistant/sensor/sw_netgear_m4300_24x/port24_link/config`       | port sub-device sensor   |
-| snmp-ctl (toggle)    | `homeassistant/switch/{sw}/port{NN}_poe_toggle/config`          | `homeassistant/switch/sw_netgear_gsm7252ps/port24_poe_toggle/config` | switch                   |
-| snmp-ctl (cycle)     | `homeassistant/button/{sw}/port{NN}_poe_cycle/config`           | `homeassistant/button/sw_netgear_gsm7252ps/port24_poe_cycle/config`  | button                   |
-| snmp-ctl (force)     | `homeassistant/switch/{sw}/port{NN}_poe_force/config`           | `homeassistant/switch/sw_netgear_gsm7252ps/port24_poe_force/config`  | switch (config category) |
+| Collector         | Topic template                                                  | Rendered example                                                     | Entity type              |
+| ----------------- | --------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------ |
+| local / ipmi      | `homeassistant/sensor/{host}/{suffix}/config`                   | `homeassistant/sensor/big_storage/cpu1_temp/config`                  | device sensor            |
+| ipmi (PSU)        | `homeassistant/sensor/{host}/psu{slot}_{suffix}/config`         | `homeassistant/sensor/big_storage/psu1_ac_input_voltage/config`      | PSU sensor               |
+| **every daemon**  | `homeassistant/binary_sensor/{host}/{module}_connection/config` | `homeassistant/binary_sensor/ten64/snmp_connection/config`           | connectivity diagnostic  |
+| snmp (hardware)   | `homeassistant/sensor/{sw}/{suffix}/config`                     | `homeassistant/sensor/sw_netgear_m4300_24x/psu_power/config`         | switch sensor            |
+| snmp (per-port)   | `homeassistant/sensor/{sw}/port{NN}_{pkey}/config`              | `homeassistant/sensor/sw_netgear_m4300_24x/port24_link/config`       | port sub-device sensor   |
+| snmp-ctl (toggle) | `homeassistant/switch/{sw}/port{NN}_poe_toggle/config`          | `homeassistant/switch/sw_netgear_gsm7252ps/port24_poe_toggle/config` | switch                   |
+| snmp-ctl (cycle)  | `homeassistant/button/{sw}/port{NN}_poe_cycle/config`           | `homeassistant/button/sw_netgear_gsm7252ps/port24_poe_cycle/config`  | button                   |
+| snmp-ctl (force)  | `homeassistant/switch/{sw}/port{NN}_poe_force/config`           | `homeassistant/switch/sw_netgear_gsm7252ps/port24_poe_force/config`  | switch (config category) |
 
 ---
 
@@ -161,20 +161,20 @@ All Pub · retained · QoS 0. These carry the JSON discovery payloads described 
 
 All Pub · retained · QoS 0.
 
-| Collector            | Topic template                                     | Rendered example                                            | Payload                                                                                                                        |
-| -------------------- | -------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| local / ipmi / hwmon | `sensors2mqtt/{host}/{module}/state`               | `sensors2mqtt/big_storage/ipmi_sensors/state`               | JSON `{suffix: value, ...}`                                                                                                    |
-| local / ipmi / hwmon | `sensors2mqtt/{host}/{module}/status`              | `sensors2mqtt/big_storage/ipmi_sensors/status`              | `online` / `offline` — daemon availability **and** Last-Will + per-cycle heartbeat (also the connection binary_sensor's state) |
-| ipmi (PSU)           | `sensors2mqtt/{host}/ipmi_sensors/psu{slot}/state` | `sensors2mqtt/big_storage/ipmi_sensors/psu1/state`          | JSON per-PSU blob (`ac_input_voltage_v`, …, `fan_2_rpm`, `status`, `serial`, `slot`, `max_power_w`)                            |
-| snmp                 | `sensors2mqtt/{sw}/state`                          | `sensors2mqtt/sw_netgear_m4300_24x/state`                   | JSON hardware values (`fan*_rpm`, `temp`, `psu_power`; PoE models also `port{NN}_poe_mw`)                                      |
-| snmp                 | `sensors2mqtt/{sw}/status`                         | `sensors2mqtt/sw_netgear_m4300_24x/status`                  | `online` / `offline` — **shared** per-switch availability (offline on poll failure)                                            |
-| snmp                 | `sensors2mqtt/{sw}/port/{NN}/state`                | `sensors2mqtt/sw_netgear_m4300_24x/port/24/state`           | JSON port blob (`link`, `speed_mbps`, `vlan_pvid`, `vlan_name`, `description`, `lldp_neighbor`, `poe_*`)                       |
-| snmp                 | `sensors2mqtt/{host}/snmp/status`                  | `sensors2mqtt/ten64/snmp/status`                            | `online` / `offline` — the snmp daemon's connection: Last-Will + per-cycle heartbeat                                           |
-| snmp-ctl             | `sensors2mqtt/{sw}/port/{NN}/poe/state`            | `sensors2mqtt/sw_netgear_gsm7252ps/port/24/poe/state`       | `ON` / `OFF` (PoE admin state)                                                                                                 |
-| snmp-ctl             | `sensors2mqtt/{sw}/port/{NN}/poe/available`        | `sensors2mqtt/sw_netgear_gsm7252ps/port/24/poe/available`   | `online` / `offline` (greys out the toggle)                                                                                    |
-| snmp-ctl             | `sensors2mqtt/{sw}/port/{NN}/poe/force/state`      | `sensors2mqtt/sw_netgear_gsm7252ps/port/24/poe/force/state` | `ON` / `OFF` (force-override, read back on startup)                                                                            |
-| snmp-ctl             | `sensors2mqtt/{sw}/status`                         | `sensors2mqtt/sw_netgear_gsm7252ps/status`                  | `online` / `offline` — **shared** per-switch status (also written by the snmp collector)                                       |
-| snmp-ctl             | `sensors2mqtt/{host}/snmp_control/status`          | `sensors2mqtt/ten64/snmp_control/status`                    | `online` / `offline` — the snmp_control daemon's connection: Last-Will + per-cycle heartbeat                                   |
+| Collector    | Topic template                                     | Rendered example                                            | Payload                                                                                                                        |
+| ------------ | -------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| local / ipmi | `sensors2mqtt/{host}/{module}/state`               | `sensors2mqtt/big_storage/ipmi_sensors/state`               | JSON `{suffix: value, ...}`                                                                                                    |
+| local / ipmi | `sensors2mqtt/{host}/{module}/status`              | `sensors2mqtt/big_storage/ipmi_sensors/status`              | `online` / `offline` — daemon availability **and** Last-Will + per-cycle heartbeat (also the connection binary_sensor's state) |
+| ipmi (PSU)   | `sensors2mqtt/{host}/ipmi_sensors/psu{slot}/state` | `sensors2mqtt/big_storage/ipmi_sensors/psu1/state`          | JSON per-PSU blob (`ac_input_voltage_v`, …, `fan_2_rpm`, `status`, `serial`, `slot`, `max_power_w`)                            |
+| snmp         | `sensors2mqtt/{sw}/state`                          | `sensors2mqtt/sw_netgear_m4300_24x/state`                   | JSON hardware values (`fan*_rpm`, `temp`, `psu_power`; PoE models also `port{NN}_poe_mw`)                                      |
+| snmp         | `sensors2mqtt/{sw}/status`                         | `sensors2mqtt/sw_netgear_m4300_24x/status`                  | `online` / `offline` — **shared** per-switch availability (offline on poll failure)                                            |
+| snmp         | `sensors2mqtt/{sw}/port/{NN}/state`                | `sensors2mqtt/sw_netgear_m4300_24x/port/24/state`           | JSON port blob (`link`, `speed_mbps`, `vlan_pvid`, `vlan_name`, `description`, `lldp_neighbor`, `poe_*`)                       |
+| snmp         | `sensors2mqtt/{host}/snmp/status`                  | `sensors2mqtt/ten64/snmp/status`                            | `online` / `offline` — the snmp daemon's connection: Last-Will + per-cycle heartbeat                                           |
+| snmp-ctl     | `sensors2mqtt/{sw}/port/{NN}/poe/state`            | `sensors2mqtt/sw_netgear_gsm7252ps/port/24/poe/state`       | `ON` / `OFF` (PoE admin state)                                                                                                 |
+| snmp-ctl     | `sensors2mqtt/{sw}/port/{NN}/poe/available`        | `sensors2mqtt/sw_netgear_gsm7252ps/port/24/poe/available`   | `online` / `offline` (greys out the toggle)                                                                                    |
+| snmp-ctl     | `sensors2mqtt/{sw}/port/{NN}/poe/force/state`      | `sensors2mqtt/sw_netgear_gsm7252ps/port/24/poe/force/state` | `ON` / `OFF` (force-override, read back on startup)                                                                            |
+| snmp-ctl     | `sensors2mqtt/{sw}/status`                         | `sensors2mqtt/sw_netgear_gsm7252ps/status`                  | `online` / `offline` — **shared** per-switch status (also written by the snmp collector)                                       |
+| snmp-ctl     | `sensors2mqtt/{host}/snmp_control/status`          | `sensors2mqtt/ten64/snmp_control/status`                    | `online` / `offline` — the snmp_control daemon's connection: Last-Will + per-cycle heartbeat                                   |
 
 ---
 
@@ -199,13 +199,12 @@ everywhere, so two daemons of the same kind on different hosts never collide. Th
 Last-Will is the per-host connection status topic the broker flips to `offline` if
 the connection drops ungracefully.
 
-| Collector      | device node_id           | client_id                          | Last-Will / connection topic              |
-| -------------- | ------------------------ | ---------------------------------- | ----------------------------------------- |
-| local          | `host_id()`              | `sensors2mqtt-{host}-local`        | `sensors2mqtt/{host}/local/status`        |
-| snmp           | switch keys (**shared**) | `sensors2mqtt-{host}-snmp`         | `sensors2mqtt/{host}/snmp/status`         |
-| snmp-ctl       | switch keys (shared)     | `sensors2mqtt-{host}-snmp_control` | `sensors2mqtt/{host}/snmp_control/status` |
-| ipmi           | `host_id()`              | `sensors2mqtt-{host}-ipmi_sensors` | `sensors2mqtt/{host}/ipmi_sensors/status` |
-| hwmon (legacy) | `host_id()`              | `sensors2mqtt-{host}-hwmon`        | `sensors2mqtt/{host}/hwmon/status`        |
+| Collector | device node_id           | client_id                          | Last-Will / connection topic              |
+| --------- | ------------------------ | ---------------------------------- | ----------------------------------------- |
+| local     | `host_id()`              | `sensors2mqtt-{host}-local`        | `sensors2mqtt/{host}/local/status`        |
+| snmp      | switch keys (**shared**) | `sensors2mqtt-{host}-snmp`         | `sensors2mqtt/{host}/snmp/status`         |
+| snmp-ctl  | switch keys (shared)     | `sensors2mqtt-{host}-snmp_control` | `sensors2mqtt/{host}/snmp_control/status` |
+| ipmi      | `host_id()`              | `sensors2mqtt-{host}-ipmi_sensors` | `sensors2mqtt/{host}/ipmi_sensors/status` |
 
 > `host_id()` is deliberately the **short** hostname for now. Two machines sharing
 > a short hostname (e.g. a `ten64` at two sites) would still collide on one broker;
@@ -222,7 +221,7 @@ Built by `discovery.py:availability_config()`: one topic → a single
 
 | Entity class                         | Availability topics                                  | Mode        | expire_after        |
 | ------------------------------------ | ---------------------------------------------------- | ----------- | ------------------- |
-| local / ipmi / hwmon sensors & PSU   | `{host}/{module}/status`                             | single      | yes (300)           |
+| local / ipmi sensors & PSU           | `{host}/{module}/status`                             | single      | yes (300)           |
 | connection diagnostic (every daemon) | *(none — relies on `expire_after`)*                  | —           | yes (300)           |
 | snmp switch hardware sensors         | `{sw}/status`                                        | single      | yes (300)           |
 | snmp per-port sensors                | `{sw}/status`                                        | single      | yes (300)           |
@@ -259,8 +258,6 @@ so it can't express a nested boolean; freshness via `expire_after` carries the
 - **Legacy retained topics are cleared on startup**: the pre-module
   `sensors2mqtt/{host}/state|status` and the two old bridge topics. (Old per-PSU
   `sensors2mqtt/{host}/psu{slot}/state` are left — harmless; HA re-points cleanly.)
-- **`collector/hwmon.py` is a migration leftover** overlapping
-  `collector/local/mellanox.py` for the same SN2410 (tracked: delete vs keep).
 - **The `--once` paths** (`collector/local/__main__.py`, and ipmi/snmp/snmp_control
   one-shot modes) don't all route through `make_client`, so some lack the Last-Will
   / connect-failure logging the daemon paths have (tracked separately).
