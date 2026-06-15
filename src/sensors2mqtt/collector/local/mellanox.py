@@ -1,8 +1,8 @@
 """Mellanox SN2410 sensor collector specialization.
 
-Migrated from collector/hwmon.py. Uses `sensors -j` to read ASIC temp,
-CPU temp, board temp, and 8 fan speeds. Inherits system diagnostics
-(uptime, memory, load) from LocalCollector base.
+Uses `sensors -j` to read ASIC temp, CPU temp, board temp, and 8 fan
+speeds. Inherits system diagnostics (uptime, memory, load) from the
+LocalCollector base.
 """
 
 from __future__ import annotations
