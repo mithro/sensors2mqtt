@@ -53,8 +53,8 @@ class TestHwmonCollector:
     @patch("sensors2mqtt.base.socket.gethostname", return_value="sw-bb-25g")
     def test_topics(self, _mock):
         c = self.make_collector()
-        assert c.state_topic == "sensors2mqtt/sw_bb_25g/state"
-        assert c.avail_topic == "sensors2mqtt/sw_bb_25g/status"
+        assert c.state_topic == "sensors2mqtt/sw_bb_25g/hwmon/state"
+        assert c.avail_topic == "sensors2mqtt/sw_bb_25g/hwmon/status"
 
     def test_extract_values_from_fixture(self):
         c = self.make_collector()

@@ -16,7 +16,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from sensors2mqtt.base import BasePublisher, client_id_for, host_id
+from sensors2mqtt.base import BasePublisher, host_id
 from sensors2mqtt.discovery import DeviceInfo, SensorDef
 
 log = logging.getLogger(__name__)
@@ -156,8 +156,8 @@ class HwmonCollector(BasePublisher):
         return self._cached_device
 
     @property
-    def client_id(self) -> str:
-        return client_id_for("hwmon")
+    def module(self) -> str:
+        return "hwmon"
 
     def poll(self) -> dict | None:
         data = self._run_sensors()
