@@ -1,5 +1,6 @@
 """Tests for IPMI sensor collector."""
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -9,7 +10,9 @@ from sensors2mqtt.collector.ipmi_sensors import (
     parse_bmc_psu_xml,
     parse_ipmi_sensors,
     poll_ipmi_sensors,
+    publish_psu_discovery,
 )
+from sensors2mqtt.discovery import EXPIRE_AFTER, DeviceInfo
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -135,3 +138,13 @@ class TestSensorDefinitions:
     def test_psu_sensors_suffixes_unique(self):
         suffixes = [s[0] for s in PSU_SENSORS]
         assert len(suffixes) == len(set(suffixes))
+
+
+def test_psu_discovery_has_expire_after():
+    client = MagicMock()
+    device = DeviceInfo(node_id="big_storage", name="big-storage", manufacturer="x", model="y")
+    psu_data = {"psus": [{"slot": 1}]}
+    publish_psu_discovery(client, device, psu_data, "sensors2mqtt/big_storage/ipmi_sensors/status")
+    payloads = [json.loads(c.args[1]) for c in client.publish.call_args_list]
+    assert payloads and all(p.get("expire_after") == EXPIRE_AFTER for p in payloads)
+    assert payloads[0]["state_topic"] == "sensors2mqtt/big_storage/ipmi_sensors/psu1/state"

@@ -25,12 +25,20 @@ import paho.mqtt.client as mqtt
 import requests
 import urllib3
 
-from sensors2mqtt.base import MqttConfig, client_id_for, host_id, make_client
+from sensors2mqtt.base import (
+    MqttConfig,
+    client_id_for,
+    connection_status_topic,
+    host_id,
+    make_client,
+)
 from sensors2mqtt.discovery import (
+    EXPIRE_AFTER,
     ORIGIN,
     DeviceInfo,
     SensorDef,
     device_dict,
+    publish_connection_diagnostic,
     publish_discovery,
     publish_state,
 )
@@ -47,6 +55,7 @@ log = logging.getLogger(__name__)
 # Device node_id is the host's id (the daemon runs on the BMC's host), so the
 # collector is not pinned to one machine name. host_id() is the short hostname.
 NODE_ID = host_id()
+MODULE = "ipmi_sensors"
 
 
 def fetch_bmc_mac() -> str | None:
@@ -360,14 +369,15 @@ def publish_psu_discovery(
 ) -> int:
     """Publish HA discovery for per-PSU sensors. Returns count."""
     dev_dict = device_dict(device)
+    node_id = device.node_id
     count = 0
     for psu in psu_data.get("psus", []):
         slot = psu["slot"]
-        psu_state_topic = f"sensors2mqtt/{NODE_ID}/psu{slot}/state"
+        psu_state_topic = f"sensors2mqtt/{node_id}/{MODULE}/psu{slot}/state"
 
         for suffix, name, dev_class, unit, state_class, icon, value_key in PSU_SENSORS:
-            object_id = f"{NODE_ID}_psu{slot}_{suffix}"
-            config_topic = f"homeassistant/sensor/{NODE_ID}/psu{slot}_{suffix}/config"
+            object_id = f"{node_id}_psu{slot}_{suffix}"
+            config_topic = f"homeassistant/sensor/{node_id}/psu{slot}_{suffix}/config"
             config = {
                 "name": f"PSU{slot} {name}",
                 "unique_id": object_id,
@@ -376,6 +386,7 @@ def publish_psu_discovery(
                 "unit_of_measurement": unit,
                 "state_class": state_class,
                 "device": dev_dict,
+                "expire_after": EXPIRE_AFTER,
                 "availability_topic": avail_topic,
                 "payload_available": "online",
                 "payload_not_available": "offline",
@@ -393,8 +404,8 @@ def publish_psu_discovery(
             ("status", f"PSU{slot} Status", "status", "mdi:power-plug", None),
             ("serial", f"PSU{slot} Serial Number", "serial", "mdi:identifier", "diagnostic"),
         ]:
-            object_id = f"{NODE_ID}_psu{slot}_{extra_suffix}"
-            config_topic = f"homeassistant/sensor/{NODE_ID}/psu{slot}_{extra_suffix}/config"
+            object_id = f"{node_id}_psu{slot}_{extra_suffix}"
+            config_topic = f"homeassistant/sensor/{node_id}/psu{slot}_{extra_suffix}/config"
             config = {
                 "name": extra_name,
                 "unique_id": object_id,
@@ -402,6 +413,7 @@ def publish_psu_discovery(
                 "value_template": f"{{{{ value_json.{extra_key} }}}}",
                 "device": dev_dict,
                 "icon": extra_icon,
+                "expire_after": EXPIRE_AFTER,
                 "availability_topic": avail_topic,
                 "payload_available": "online",
                 "payload_not_available": "offline",
@@ -447,8 +459,9 @@ def main():
     stop_event = threading.Event()
     discovery_published = False
 
-    state_topic = f"sensors2mqtt/{NODE_ID}/state"
-    avail_topic = f"sensors2mqtt/{NODE_ID}/status"
+    state_topic = f"sensors2mqtt/{NODE_ID}/{MODULE}/state"
+    avail_topic = f"sensors2mqtt/{NODE_ID}/{MODULE}/status"
+    conn_topic = connection_status_topic(MODULE)  # == avail_topic
 
     def shutdown(signum, frame):
         log.info("Shutting down (signal %d)", signum)
@@ -459,12 +472,21 @@ def main():
         signal.signal(signal.SIGINT, shutdown)
 
     client = make_client(
-        config, client_id_for("ipmi-sensors"), will_topic=avail_topic,
+        config, client_id_for(MODULE), will_topic=conn_topic,
     )
 
     log.info("Connecting to MQTT %s:%d", config.host, config.port)
     client.connect(config.host, config.port, keepalive=120)
     client.loop_start()
+
+    # One-time migration: clear legacy non-module-scoped retained topics.
+    # (Old per-PSU topics sensors2mqtt/{NODE_ID}/psu{slot}/state are left as-is:
+    # the PSU discovery config topics are unchanged, so HA re-points those entities
+    # to the new state topic cleanly; the stale retained values are harmless and the
+    # slot count isn't known until the first poll.)
+    client.publish(f"sensors2mqtt/{NODE_ID}/state", "", retain=True)
+    client.publish(f"sensors2mqtt/{NODE_ID}/status", "", retain=True)
+    publish_connection_diagnostic(client, NODE_ID, MODULE, socket.gethostname())
 
     bmc_mac = fetch_bmc_mac()
     if bmc_mac:
@@ -516,7 +538,7 @@ def main():
                 if psu_data:
                     for psu in psu_data.get("psus", []):
                         slot = psu["slot"]
-                        psu_topic = f"sensors2mqtt/{NODE_ID}/psu{slot}/state"
+                        psu_topic = f"sensors2mqtt/{NODE_ID}/{MODULE}/psu{slot}/state"
                         client.publish(psu_topic, json.dumps(psu), retain=True)
 
                 psu_power = sum(
