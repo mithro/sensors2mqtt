@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -24,24 +25,28 @@ from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
-from sensors2mqtt.base import MqttConfig, client_id_for, make_client
+from sensors2mqtt.base import (
+    MqttConfig,
+    client_id_for,
+    connection_status_topic,
+    host_id,
+    make_client,
+)
 from sensors2mqtt.discovery import (
     DISCOVERY_PREFIX,
+    EXPIRE_AFTER,
     ORIGIN,
     DeviceInfo,
     SensorDef,
     availability_config,
     device_dict,
+    publish_connection_diagnostic,
     publish_discovery,
     publish_state,
 )
 
-# Per-collector bridge availability topic. One MQTT connection serves many
-# switches, so a single Last-Will can't cover each switch's own status topic.
-# The bridge topic is the connection's will: it flips offline if the collector
-# dies, and every entity lists it (availability_mode "all") so HA marks them
-# unavailable. See task: bridge availability.
-SNMP_BRIDGE_TOPIC = "sensors2mqtt/snmp_bridge/status"
+# Legacy fixed bridge topic (pre multi-host). Cleared on startup; no longer used.
+_LEGACY_BRIDGE_TOPIC = "sensors2mqtt/snmp_bridge/status"
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -914,7 +919,6 @@ def _publish_port_discovery(
     switch: SwitchConfig,
     avail_topic: str,
     chassis_macs: dict[int, str] | None = None,
-    bridge_topic: str | None = None,
 ) -> int:
     """Publish per-port sensor discovery for all ports on a switch.
 
@@ -974,7 +978,8 @@ def _publish_port_discovery(
                 "state_topic": port_state_topic,
                 "value_template": f"{{{{ value_json.{value_key} }}}}",
                 "device": port_dev_dict,
-                **availability_config(avail_topic, bridge_topic),
+                "expire_after": EXPIRE_AFTER,
+                **availability_config(avail_topic),
                 "origin": ORIGIN,
             }
             if unit:
@@ -1024,18 +1029,22 @@ def main():
         signal.signal(signal.SIGTERM, shutdown)
         signal.signal(signal.SIGINT, shutdown)
 
-    def _publish_bridge_online(c: mqtt.Client) -> None:
-        c.publish(SNMP_BRIDGE_TOPIC, "online", retain=True)
+    conn_topic = connection_status_topic("snmp")
+
+    def _on_connected(c: mqtt.Client) -> None:
+        c.publish(conn_topic, "online", retain=True)
+        publish_connection_diagnostic(c, host_id(), "snmp", socket.gethostname())
 
     client = make_client(
         config, client_id_for("snmp"),
-        on_connected=_publish_bridge_online,
-        will_topic=SNMP_BRIDGE_TOPIC,
+        on_connected=_on_connected,
+        will_topic=conn_topic,
     )
 
     log.info("Connecting to MQTT %s:%d", config.host, config.port)
     client.connect(config.host, config.port, keepalive=120)
     client.loop_start()
+    client.publish(_LEGACY_BRIDGE_TOPIC, "", retain=True)  # one-time cleanup
 
     try:
         while not stop_event.is_set():
@@ -1067,7 +1076,6 @@ def main():
                         hw_state = collector.state_topic(switch)
                         hw_count = publish_discovery(
                             client, hw_sensors, device, hw_state, avail,
-                            bridge_topic=SNMP_BRIDGE_TOPIC,
                         )
                         log.info(
                             "%s: published discovery for %d hardware sensors",
@@ -1080,7 +1088,6 @@ def main():
                         port_count = _publish_port_discovery(
                             client, switch, avail,
                             chassis_macs=chassis_macs,
-                            bridge_topic=SNMP_BRIDGE_TOPIC,
                         )
                         log.info(
                             "%s: published discovery for %d port sensors",
@@ -1111,6 +1118,8 @@ def main():
                     len(port_status),
                 )
 
+            # heartbeat the collector's own connection liveness
+            client.publish(conn_topic, "online", retain=True)
             if args.once:
                 break
             stop_event.wait(timeout=config.poll_interval)
@@ -1118,7 +1127,7 @@ def main():
     finally:
         for switch in collector.switches:
             client.publish(collector.avail_topic(switch), "offline", retain=True)
-        client.publish(SNMP_BRIDGE_TOPIC, "offline", retain=True)
+        client.publish(conn_topic, "offline", retain=True)
         client.disconnect()
         client.loop_stop()
         log.info("Disconnected from MQTT")

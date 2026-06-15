@@ -499,3 +499,30 @@ class TestSnmpCollector:
         # Ports 49-52 are SFP+ uplinks (no PoE fields)
         assert "poe_admin" not in ports[49]
         assert "poe_status" not in ports[49]
+
+
+def test_port_discovery_drops_bridge_and_has_expire_after():
+    import json
+    from unittest.mock import MagicMock
+
+    from sensors2mqtt.collector.snmp import _publish_port_discovery
+    from sensors2mqtt.discovery import EXPIRE_AFTER
+
+    sw = _make_switch("test-m4300", "m4300")  # port_count=24 > 0
+    client = MagicMock()
+    _publish_port_discovery(client, sw, f"sensors2mqtt/{sw.node_id}/status")
+    cfgs = [json.loads(c.args[1]) for c in client.publish.call_args_list]
+    assert cfgs
+    for c in cfgs:
+        assert c["availability_topic"] == f"sensors2mqtt/{sw.node_id}/status"
+        assert "availability" not in c  # no multi-topic list -> no bridge
+        assert c["expire_after"] == EXPIRE_AFTER
+
+
+def test_connection_status_topic_for_snmp(monkeypatch):
+    import sensors2mqtt.base as base
+
+    monkeypatch.setattr(base.socket, "gethostname", lambda: "ten64")
+    from sensors2mqtt.base import connection_status_topic
+
+    assert connection_status_topic("snmp") == "sensors2mqtt/ten64/snmp/status"
