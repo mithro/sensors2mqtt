@@ -7,10 +7,13 @@ from unittest.mock import MagicMock, patch
 from sensors2mqtt.collector.ipmi_sensors import (
     IPMI_SENSOR_MAP,
     PSU_SENSORS,
+    fetch_bmc_fru,
     parse_bmc_psu_xml,
+    parse_fru_identity,
     parse_ipmi_sensors,
     poll_ipmi_sensors,
     publish_psu_discovery,
+    resolve_device_identity,
 )
 from sensors2mqtt.discovery import EXPIRE_AFTER, DeviceInfo
 
@@ -138,6 +141,91 @@ class TestSensorDefinitions:
     def test_psu_sensors_suffixes_unique(self):
         suffixes = [s[0] for s in PSU_SENSORS]
         assert len(suffixes) == len(set(suffixes))
+
+
+# `ipmitool fru` output for a Supermicro board. Note "Board Mfg Date" shares a
+# prefix with "Board Mfg", and "Product Name" is empty (common on Supermicro) —
+# both are realistic parser hazards.
+SUPERMICRO_FRU = """\
+FRU Device Description : Builtin FRU Device (ID 0)
+ Chassis Type          : Other
+ Chassis Part Number   : CSE-826
+ Board Mfg Date        : Mon Jan  1 00:00:00 2018
+ Board Mfg             : Supermicro
+ Board Product         : X11DSC+
+ Board Serial          : OM18AS012345
+ Board Part Number     : X11DSC+
+ Product Manufacturer  : Supermicro
+ Product Name          :
+ Product Part Number   : SYS-6029
+"""
+
+
+class TestParseFruIdentity:
+    def test_board_fields(self):
+        assert parse_fru_identity(SUPERMICRO_FRU) == ("Supermicro", "X11DSC+")
+
+    def test_product_fallback_when_no_board_fields(self):
+        output = (
+            " Product Manufacturer  : Dell Inc.\n"
+            " Product Name          : PowerEdge R740\n"
+        )
+        assert parse_fru_identity(output) == ("Dell Inc.", "PowerEdge R740")
+
+    def test_board_preferred_over_product(self):
+        output = (
+            " Board Mfg             : BoardMfg\n"
+            " Board Product         : BoardModel\n"
+            " Product Manufacturer  : ProdMfg\n"
+            " Product Name          : ProdModel\n"
+        )
+        assert parse_fru_identity(output) == ("BoardMfg", "BoardModel")
+
+    def test_board_mfg_date_not_mistaken_for_board_mfg(self):
+        """Exact-key match: 'Board Mfg Date' must not satisfy 'Board Mfg'."""
+        output = " Board Mfg Date        : Mon Jan  1 2018\n Board Product : X11\n"
+        assert parse_fru_identity(output) == (None, "X11")
+
+    def test_empty_output(self):
+        assert parse_fru_identity("") == (None, None)
+
+    def test_no_identity_fields(self):
+        assert parse_fru_identity(" Chassis Type : Other\nrandom noise\n") == (None, None)
+
+
+class TestFetchBmcFru:
+    @patch("sensors2mqtt.collector.ipmi_sensors.subprocess.run")
+    def test_success(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout=SUPERMICRO_FRU, stderr="")
+        assert fetch_bmc_fru() == ("Supermicro", "X11DSC+")
+
+    @patch("sensors2mqtt.collector.ipmi_sensors.subprocess.run")
+    def test_failure_returns_none_pair(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="no access")
+        assert fetch_bmc_fru() == (None, None)
+
+    @patch("sensors2mqtt.collector.ipmi_sensors.subprocess.run")
+    def test_timeout_returns_none_pair(self, mock_run):
+        import subprocess
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="ipmitool", timeout=10)
+        assert fetch_bmc_fru() == (None, None)
+
+
+class TestResolveDeviceIdentity:
+    @patch("sensors2mqtt.collector.ipmi_sensors.fetch_bmc_fru")
+    def test_uses_fru_probe(self, mock_fru):
+        mock_fru.return_value = ("Dell Inc.", "PowerEdge R740")
+        assert resolve_device_identity() == ("Dell Inc.", "PowerEdge R740")
+
+    @patch("sensors2mqtt.collector.ipmi_sensors.fetch_bmc_fru")
+    def test_unknown_fallback(self, mock_fru):
+        mock_fru.return_value = (None, None)
+        assert resolve_device_identity() == ("Unknown", "Unknown")
+
+    @patch("sensors2mqtt.collector.ipmi_sensors.fetch_bmc_fru")
+    def test_partial_fru_falls_back_per_field(self, mock_fru):
+        mock_fru.return_value = ("Supermicro", None)
+        assert resolve_device_identity() == ("Supermicro", "Unknown")
 
 
 def test_psu_discovery_has_expire_after():

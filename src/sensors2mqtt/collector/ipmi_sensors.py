@@ -85,6 +85,61 @@ def fetch_bmc_mac() -> str | None:
     return None
 
 
+def parse_fru_identity(output: str) -> tuple[str | None, str | None]:
+    """Extract (manufacturer, model) from `ipmitool fru` output.
+
+    Prefers the Board Mfg / Board Product fields, falling back to
+    Product Manufacturer / Product Name. Matching is by exact field name (so
+    "Board Mfg Date" is not mistaken for "Board Mfg"), and only the first
+    occurrence of each field is kept (the builtin FRU device, ID 0, is listed
+    first). Empty values are ignored. Returns (None, None) when neither pair
+    is present.
+    """
+    fields: dict[str, str] = {}
+    for line in output.splitlines():
+        key, sep, val = line.partition(":")
+        if not sep:
+            continue
+        key, val = key.strip(), val.strip()
+        if key and val:
+            fields.setdefault(key, val)
+    manufacturer = fields.get("Board Mfg") or fields.get("Product Manufacturer")
+    model = fields.get("Board Product") or fields.get("Product Name")
+    return manufacturer, model
+
+
+def fetch_bmc_fru() -> tuple[str | None, str | None]:
+    """Probe (manufacturer, model) from the BMC FRU via `ipmitool fru`.
+
+    Returns (None, None) on any failure; the caller falls back to "Unknown".
+    """
+    try:
+        result = subprocess.run(
+            ["ipmitool", "fru"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            log.warning("BMC FRU fetch failed: %s", result.stderr.strip())
+            return None, None
+        return parse_fru_identity(result.stdout)
+    except subprocess.TimeoutExpired:
+        log.warning("BMC FRU fetch timed out")
+    except Exception as e:
+        log.warning("BMC FRU fetch error: %s", e)
+    return None, None
+
+
+def resolve_device_identity() -> tuple[str, str]:
+    """Resolve (manufacturer, model) for HA discovery from the BMC FRU.
+
+    Falls back to "Unknown" per field when the FRU probe yields nothing.
+    device_dict() omits "Unknown" from discovery, so HA shows no
+    manufacturer/model rather than a wrong one.
+    """
+    fru_manufacturer, fru_model = fetch_bmc_fru()
+    return fru_manufacturer or "Unknown", fru_model or "Unknown"
+
+
 # IPMI sensor name -> (suffix, friendly_name, device_class, unit, icon)
 # These map `ipmitool sdr list full` output names to HA discovery suffixes.
 IPMI_SENSOR_MAP: dict[str, tuple[str, str, str | None, str, str | None]] = {
@@ -491,11 +546,13 @@ def main():
     bmc_mac = fetch_bmc_mac()
     if bmc_mac:
         log.info("BMC MAC: %s", bmc_mac)
+    manufacturer, model = resolve_device_identity()
+    log.info("BMC hardware: manufacturer=%s model=%s", manufacturer, model)
     device_info = DeviceInfo(
         node_id=NODE_ID,
         name=socket.gethostname(),
-        manufacturer="Supermicro",
-        model="X11DSC+",
+        manufacturer=manufacturer,
+        model=model,
         configuration_url=f"https://{bmc_host}",
         connections=(("mac", bmc_mac),) if bmc_mac else None,
     )
