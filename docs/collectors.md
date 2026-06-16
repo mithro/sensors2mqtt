@@ -7,6 +7,15 @@ management, Home Assistant auto-discovery, and an interruptible poll loop.
 
 Auto-detects hardware and runs the appropriate sub-collector.
 
+**Debian package:** `sensors2mqtt-local` installs the systemd service enabled **and started**
+automatically — no configuration is needed beyond MQTT credentials in `/etc/sensors2mqtt/env`.
+
+```bash
+sudo apt install sensors2mqtt-local
+# Service starts immediately and on every boot.
+```
+
+**Development / manual run:**
 ```bash
 uv run python -m sensors2mqtt.collector.local
 uv run python -m sensors2mqtt.collector.local --hardware rpi      # force RPi mode
@@ -28,6 +37,21 @@ from the hwmon sysfs interface.
 Polls Netgear managed switches via SNMP for hardware sensors (fans, thermal,
 PSU) and per-port PoE power consumption.
 
+**Debian packages:** `sensors2mqtt-snmp` (read-only sensors) and
+`sensors2mqtt-snmp-control` (PoE port control) each install their systemd
+service enabled but **not started** — place config first, then start.
+Both packages can be installed on the same host simultaneously.
+
+```bash
+sudo apt install sensors2mqtt-snmp sensors2mqtt-snmp-control  # install one or both
+sudo editor /etc/sensors2mqtt/env                              # set MQTT credentials
+sudo cp /usr/share/sensors2mqtt/snmp.toml.example /etc/sensors2mqtt/snmp.toml
+sudo editor /etc/sensors2mqtt/snmp.toml                       # add switch definitions
+sudo systemctl start sensors2mqtt-snmp
+sudo systemctl start sensors2mqtt-snmp-control                # if also installed
+```
+
+**Development / manual run:**
 ```bash
 uv run python -m sensors2mqtt.collector.snmp
 ```
@@ -48,6 +72,17 @@ See `snmp.toml.example` for the format.
 Reads sensor data from a remote BMC via `ipmitool` and per-PSU PMBus data
 via the BMC web API.
 
+**Debian package:** `sensors2mqtt-ipmi-sensors` installs the systemd service
+enabled but **not started** — add BMC credentials first, then start.
+
+```bash
+sudo apt install sensors2mqtt-ipmi-sensors
+# Edit /etc/sensors2mqtt/env — add BMC_HOST, BMC_USER, BMC_PASS plus MQTT creds:
+sudo editor /etc/sensors2mqtt/env
+sudo systemctl start sensors2mqtt-ipmi-sensors
+```
+
+**Development / manual run:**
 ```bash
 export BMC_HOST=your-bmc-host
 export BMC_USER=admin

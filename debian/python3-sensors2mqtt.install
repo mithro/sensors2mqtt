@@ -1,2 +1,4 @@
 usr/lib/python3*/dist-packages/sensors2mqtt
 usr/lib/python3*/dist-packages/sensors2mqtt-*.dist-info
+deploy/env.example usr/share/sensors2mqtt/
+snmp.toml.example usr/share/sensors2mqtt/
