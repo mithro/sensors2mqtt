@@ -42,3 +42,48 @@ Description: sensors2mqtt local sensor collector systemd service
  (Raspberry Pi, Mellanox SN2410) and runs the appropriate collector.
  .
  Configure MQTT connection via /etc/sensors2mqtt/env.
+
+Package: sensors2mqtt-snmp
+Architecture: all
+Depends: python3-sensors2mqtt (= ${binary:Version}),
+         python3,
+         snmp,
+         systemd,
+         ${misc:Depends}
+Description: sensors2mqtt SNMP collector for Netgear managed switches
+ Installs the sensors2mqtt-snmp systemd service, which polls Netgear managed
+ switches over SNMP and publishes sensor data to Home Assistant via MQTT
+ auto-discovery.
+ .
+ Configure switches in /etc/sensors2mqtt/snmp.toml and the MQTT connection in
+ /etc/sensors2mqtt/env, then start the service.
+
+Package: sensors2mqtt-snmp-control
+Architecture: all
+Depends: python3-sensors2mqtt (= ${binary:Version}),
+         python3,
+         snmp,
+         systemd,
+         ${misc:Depends}
+Description: sensors2mqtt PoE control service for Netgear managed switches
+ Installs the sensors2mqtt-snmp-control systemd service, which exposes per-port
+ PoE control for Netgear managed switches to Home Assistant via MQTT.
+ .
+ Configure switches in /etc/sensors2mqtt/snmp.toml and the MQTT connection in
+ /etc/sensors2mqtt/env, then start the service.
+
+Package: sensors2mqtt-ipmi-sensors
+Architecture: all
+Depends: python3-sensors2mqtt (= ${binary:Version}),
+         python3,
+         ipmitool,
+         python3-requests,
+         systemd,
+         ${misc:Depends}
+Description: sensors2mqtt IPMI sensor collector
+ Installs the sensors2mqtt-ipmi-sensors systemd service, which reads sensors
+ from a BMC via ipmitool and the BMC web API and publishes them to Home
+ Assistant via MQTT auto-discovery.
+ .
+ Configure BMC_HOST/BMC_USER/BMC_PASS and the MQTT connection in
+ /etc/sensors2mqtt/env, then start the service.
