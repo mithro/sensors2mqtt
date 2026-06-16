@@ -20,7 +20,8 @@ Package: python3-sensors2mqtt
 Architecture: all
 Depends: ${python3:Depends},
          ${misc:Depends}
-Replaces: sensors2mqtt-local
+Replaces: sensors2mqtt-local (<< ${source:Version})
+Breaks: sensors2mqtt-local (<< ${source:Version})
 Description: Publish hardware sensor data to Home Assistant via MQTT
  sensors2mqtt is a collection of sensor collectors that poll hardware
  monitoring data and publish it to Home Assistant via MQTT auto-discovery.
