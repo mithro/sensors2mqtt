@@ -46,6 +46,7 @@ Both packages can be installed on the same host simultaneously.
 sudo apt install sensors2mqtt-snmp sensors2mqtt-snmp-control  # install one or both
 sudo editor /etc/sensors2mqtt/env                              # set MQTT credentials
 sudo cp /usr/share/sensors2mqtt/snmp.toml.example /etc/sensors2mqtt/snmp.toml
+sudo chmod 0600 /etc/sensors2mqtt/snmp.toml                   # holds community strings
 sudo editor /etc/sensors2mqtt/snmp.toml                       # add switch definitions
 sudo systemctl start sensors2mqtt-snmp
 sudo systemctl start sensors2mqtt-snmp-control                # if also installed
@@ -58,6 +59,10 @@ uv run python -m sensors2mqtt.collector.snmp
 
 Requires a configuration file at `snmp.toml` or `/etc/sensors2mqtt/snmp.toml`.
 See `snmp.toml.example` for the format.
+
+The config file holds SNMP community strings, so it must be `0600`; the snmp and
+snmp-control collectors refuse to start otherwise (the startup error names the
+file and the `chmod 0600` fix).
 
 ### Supported switch models
 

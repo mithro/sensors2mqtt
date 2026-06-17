@@ -44,6 +44,7 @@ from sensors2mqtt.discovery import (
     publish_discovery,
     publish_state,
 )
+from sensors2mqtt.security import ensure_secure_file
 
 # Legacy fixed bridge topic (pre multi-host). Cleared on startup; no longer used.
 _LEGACY_BRIDGE_TOPIC = "sensors2mqtt/snmp_bridge/status"
@@ -279,6 +280,7 @@ def load_config(path: Path | None = None) -> list[SwitchConfig]:
             )
 
     log.info("Loading config from %s", path)
+    ensure_secure_file(path)
     with open(path, "rb") as f:
         data = tomllib.load(f)
 

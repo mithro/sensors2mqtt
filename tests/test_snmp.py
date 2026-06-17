@@ -1,5 +1,6 @@
 """Tests for SNMP collector."""
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +18,7 @@ from sensors2mqtt.collector.snmp import (
     parse_snmpwalk,
     snmpget_value,
 )
+from sensors2mqtt.security import InsecureFilePermissionsError
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CONFIG_FILE = Path(__file__).parent / "fixtures" / "snmp_test.toml"
@@ -169,6 +171,19 @@ class TestModelDefinitions:
 
 
 class TestConfigLoading:
+    @pytest.fixture(autouse=True)
+    def _secure_shared_fixture(self):
+        # load_config now refuses group/world-readable files. The committed
+        # fixture checks out 0664; tighten it to 0600 for these tests, then
+        # restore so the test leaves no on-disk side effect. (git tracks only
+        # the executable bit, so the chmod itself produces no diff either way.)
+        original_mode = CONFIG_FILE.stat().st_mode
+        os.chmod(CONFIG_FILE, 0o600)
+        try:
+            yield
+        finally:
+            os.chmod(CONFIG_FILE, original_mode)
+
     def test_load_config(self):
         """Load the test config fixture."""
         switches = load_config(CONFIG_FILE)
@@ -219,6 +234,33 @@ class TestConfigLoading:
         """When no config file found, FileNotFoundError is raised."""
         with pytest.raises(FileNotFoundError):
             load_config(Path("/nonexistent/snmp.toml"))
+
+    def test_load_config_insecure_perms_raises(self, tmp_path):
+        """A group/world-readable config must refuse to load."""
+        cfg = tmp_path / "snmp.toml"
+        cfg.write_text(
+            '[switches.test-m4300]\n'
+            'model = "m4300"\n'
+            'host = "test-m4300.example.com"\n'
+            'community = "public"\n'
+        )
+        os.chmod(cfg, 0o644)
+        with pytest.raises(InsecureFilePermissionsError):
+            load_config(cfg)
+
+    def test_load_config_secure_perms_loads(self, tmp_path):
+        """A 0600 config loads normally."""
+        cfg = tmp_path / "snmp.toml"
+        cfg.write_text(
+            '[switches.test-m4300]\n'
+            'model = "m4300"\n'
+            'host = "test-m4300.example.com"\n'
+            'community = "public"\n'
+        )
+        os.chmod(cfg, 0o600)
+        switches = load_config(cfg)
+        assert len(switches) == 1
+        assert switches[0].name == "test-m4300"
 
 
 class TestVlanNameLookup:
