@@ -122,17 +122,17 @@ false-positives.
 ## Rollout dependency (safety — not optional)
 
 "Refuse to start" is a **breaking change** for any host whose `snmp.toml` is
-still group/world readable — including **ten64 today** (`snmp.toml` is `0644`).
-Every merge to `main` auto-publishes to PyPI and the apt repo, and ten64 runs
-`unattended-upgrades`; an upgrade + restart after this ships would make ten64's
-`sensors2mqtt-snmp` / `sensors2mqtt-snmp-control` refuse to start and take switch
-monitoring down.
+still group/world readable. Every merge to `main` auto-publishes to PyPI and the
+apt repo, and ten64 runs `unattended-upgrades`; an upgrade + restart on such a
+host would make `sensors2mqtt-snmp` / `sensors2mqtt-snmp-control` refuse to start
+and take switch monitoring down.
 
-Therefore: **ten64's `/etc/sensors2mqtt/snmp.toml` (and any other snmp host's)
-must be `chmod 0600` before this version reaches it.** The natural gate is that
-#35 will not merge without explicit approval; remediation is a documented
-pre-merge / pre-deploy prerequisite, executed as ops (tracked under #5), not as
-part of this code change.
+ten64 was the only host running the snmp collectors and its `snmp.toml` was
+`0644`; it was **remediated to `0600` on 2026-06-17** (ahead of this guard
+shipping), so the imminent hazard is cleared. Any *future* snmp host must have
+its `/etc/sensors2mqtt/snmp.toml` set to `0600` before this version reaches it.
+Remediation is ops (tracked under #5), not part of this code change; the natural
+gate remains that #35 will not merge without explicit approval.
 
 ## Testing / Verification
 
