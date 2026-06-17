@@ -214,17 +214,22 @@ class TestDeviceIdentification:
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
         assert c.device.node_id == "rpi5_pmod"
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="rpi5-pmod")
-    def test_name_is_hostname(self, _mock):
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="rpi5-pmod")
+    def test_name_is_short_hostname(self, _mock):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
         assert c.device.name == "rpi5-pmod"
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="test-host")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="ten64.welland.mithis.com")
+    def test_name_strips_domain(self, _mock):
+        c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
+        assert c.device.name == "ten64"
+
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="test-host")
     def test_base_manufacturer_is_unknown(self, _mock):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
         assert c.device.manufacturer == "Unknown"
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="test-host")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="test-host")
     def test_mac_in_connections(self, _mock):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
         assert c.device.connections == (("mac", "88:a2:9e:80:87:9b"),)
@@ -236,7 +241,7 @@ class TestDeviceIdentification:
 
 
 class TestConfigLoading:
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="test")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="test")
     def test_via_device_from_config(self, _mock, tmp_path):
         config_file = tmp_path / "local.toml"
         config_file.write_text('via_device = "sensors2mqtt_sw_netgear_gsm7252ps_s1"\n')

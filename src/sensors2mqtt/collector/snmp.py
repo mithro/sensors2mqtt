@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 import re
-import socket
 import subprocess
 import sys
 import time
@@ -30,6 +29,7 @@ from sensors2mqtt.base import (
     client_id_for,
     connection_status_topic,
     host_id,
+    host_name,
     make_client,
 )
 from sensors2mqtt.discovery import (
@@ -1199,7 +1199,7 @@ def main():
 
     def _on_connected(c: mqtt.Client) -> None:
         c.publish(conn_topic, "online", retain=True)
-        publish_connection_diagnostic(c, host_id(), "snmp", socket.gethostname())
+        publish_connection_diagnostic(c, host_id(), "snmp", host_name())
 
     client = make_client(
         config, client_id_for("snmp"),

@@ -8,12 +8,11 @@ from __future__ import annotations
 
 import logging
 import re
-import socket
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from sensors2mqtt.base import BasePublisher, MqttConfig, host_id
+from sensors2mqtt.base import BasePublisher, MqttConfig, host_id, host_name
 from sensors2mqtt.discovery import DeviceInfo, SensorDef
 
 log = logging.getLogger(__name__)
@@ -164,7 +163,7 @@ class LocalCollector(BasePublisher):
     # ------------------------------------------------------------------
 
     def _probe_device(self) -> DeviceInfo:
-        hostname = socket.gethostname()
+        hostname = host_name()
         node_id = host_id()
         mac = self._read_mac()
         via = self._local_config.get("via_device")

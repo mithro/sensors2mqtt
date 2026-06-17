@@ -15,7 +15,6 @@ import logging
 import os
 import re
 import signal
-import socket
 import subprocess
 import threading
 import time
@@ -30,6 +29,7 @@ from sensors2mqtt.base import (
     client_id_for,
     connection_status_topic,
     host_id,
+    host_name,
     make_client,
 )
 from sensors2mqtt.discovery import (
@@ -541,7 +541,7 @@ def main():
     # slot count isn't known until the first poll.)
     client.publish(f"sensors2mqtt/{NODE_ID}/state", "", retain=True)
     client.publish(f"sensors2mqtt/{NODE_ID}/status", "", retain=True)
-    publish_connection_diagnostic(client, NODE_ID, MODULE, socket.gethostname())
+    publish_connection_diagnostic(client, NODE_ID, MODULE, host_name())
 
     bmc_mac = fetch_bmc_mac()
     if bmc_mac:
@@ -550,7 +550,7 @@ def main():
     log.info("BMC hardware: manufacturer=%s model=%s", manufacturer, model)
     device_info = DeviceInfo(
         node_id=NODE_ID,
-        name=socket.gethostname(),
+        name=host_name(),
         manufacturer=manufacturer,
         model=model,
         configuration_url=f"https://{bmc_host}",
