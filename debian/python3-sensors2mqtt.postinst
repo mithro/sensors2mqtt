@@ -5,6 +5,7 @@ if [ "$1" = "configure" ]; then
     mkdir -p /etc/sensors2mqtt
     if [ ! -f /etc/sensors2mqtt/env ]; then
         cp /usr/share/sensors2mqtt/env.example /etc/sensors2mqtt/env
+        chmod 0600 /etc/sensors2mqtt/env
     fi
 fi
 
