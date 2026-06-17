@@ -18,6 +18,7 @@ from sensors2mqtt.collector.snmp import (
     parse_snmpwalk,
     snmpget_value,
 )
+from sensors2mqtt.security import InsecureFilePermissionsError
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CONFIG_FILE = Path(__file__).parent / "fixtures" / "snmp_test.toml"
@@ -230,8 +231,6 @@ class TestConfigLoading:
 
     def test_load_config_insecure_perms_raises(self, tmp_path):
         """A group/world-readable config must refuse to load."""
-        from sensors2mqtt.security import InsecureFilePermissionsError
-
         cfg = tmp_path / "snmp.toml"
         cfg.write_text(
             '[switches.test-m4300]\n'
