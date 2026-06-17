@@ -174,9 +174,15 @@ class TestConfigLoading:
     @pytest.fixture(autouse=True)
     def _secure_shared_fixture(self):
         # load_config now refuses group/world-readable files. The committed
-        # fixture checks out 0664; tighten it to 0600 for these tests. git
-        # tracks only the executable bit, so this leaves no diff.
+        # fixture checks out 0664; tighten it to 0600 for these tests, then
+        # restore so the test leaves no on-disk side effect. (git tracks only
+        # the executable bit, so the chmod itself produces no diff either way.)
+        original_mode = CONFIG_FILE.stat().st_mode
         os.chmod(CONFIG_FILE, 0o600)
+        try:
+            yield
+        finally:
+            os.chmod(CONFIG_FILE, original_mode)
 
     def test_load_config(self):
         """Load the test config fixture."""
