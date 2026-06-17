@@ -43,7 +43,7 @@ sudo systemctl start sensors2mqtt-snmp    # or sensors2mqtt-snmp-control
 ```
 
 > The snmp collectors refuse to start if `/etc/sensors2mqtt/snmp.toml` is
-> group- or world-readable (it contains SNMP community strings). The seeded
+> group- or world-accessible (it contains SNMP community strings). The seeded
 > `/etc/sensors2mqtt/env` is created `0600` automatically.
 
 **IPMI bring-up:**

@@ -87,4 +87,4 @@ make setup        # creates .venv, installs deps
 If a host runs etckeeper, files under `/etc/sensors2mqtt/` (including `env` and
 `snmp.toml`) are committed into `/etc/.git`, so their credentials enter that
 git history. If that is undesirable on a given host, exclude the directory from
-etckeeper (e.g. add `/etc/sensors2mqtt` to `/etc/.gitignore`).
+etckeeper (e.g. add `/sensors2mqtt/` to `/etc/.gitignore`).
