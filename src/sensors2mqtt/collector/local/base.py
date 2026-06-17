@@ -229,12 +229,13 @@ class LocalCollector(BasePublisher):
                 continue
             # Derive a suffix from the zone type
             suffix = re.sub(r"[^a-z0-9]+", "_", zone_type.lower().strip("-_"))
-            # Common name mapping
-            name_map = {
-                "cpu_thermal": ("cpu_temp", "CPU Temperature"),
-            }
-            if suffix in name_map:
-                suffix, name = name_map[suffix]
+            # Thermal-zone types that represent the primary CPU/cluster
+            # temperature, normalised across platforms (RPi: cpu_thermal;
+            # ARM/Armada: core-cluster; x86: x86_pkg_temp). The first such zone
+            # becomes the canonical cpu_temp; later ones dedupe out below.
+            cpu_zone_types = {"cpu_thermal", "cpu", "core_cluster", "x86_pkg_temp"}
+            if suffix in cpu_zone_types:
+                suffix, name = "cpu_temp", "CPU Temperature"
             else:
                 name = f"{zone_type} Temperature"
                 suffix = f"{suffix}_temp"
