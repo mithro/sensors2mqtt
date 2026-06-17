@@ -82,17 +82,17 @@ class TestMellanoxDeviceInfo:
         c = make_mellanox()
         assert c.device.node_id == "sw_bb_25g"
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="sw-bb-25g")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="sw-bb-25g")
     def test_manufacturer(self, _mock):
         c = make_mellanox()
         assert c.device.manufacturer == "Mellanox"
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="sw-bb-25g")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="sw-bb-25g")
     def test_model(self, _mock):
         c = make_mellanox()
         assert c.device.model == "SN2410"
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="sw-bb-25g")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="sw-bb-25g")
     def test_mac_prefers_bmc(self, _mock):
         """Mellanox has bmc and eth0 — should prefer bmc."""
         c = make_mellanox()

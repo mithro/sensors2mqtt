@@ -26,32 +26,32 @@ def make_rpi(fixture: str, vcgencmd_available: bool = False):
 
 
 class TestDeviceInfo:
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="rpi5-pmod")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="rpi5-pmod")
     def test_manufacturer(self, _mock):
         c = make_rpi("rpi5_sysfs")
         assert c.device.manufacturer == "Raspberry Pi"
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="rpi5-pmod")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="rpi5-pmod")
     def test_model_rpi5(self, _mock):
         c = make_rpi("rpi5_sysfs")
         assert "Raspberry Pi 5" in c.device.model
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="rpi4-pmod")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="rpi4-pmod")
     def test_model_rpi4(self, _mock):
         c = make_rpi("rpi4_sysfs")
         assert "Raspberry Pi 4" in c.device.model
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="rpiz-serial")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="rpiz-serial")
     def test_model_rpizero(self, _mock):
         c = make_rpi("rpizero_sysfs")
         assert "Raspberry Pi Zero" in c.device.model
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="rpi5-pmod")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="rpi5-pmod")
     def test_mac_from_eth0(self, _mock):
         c = make_rpi("rpi5_sysfs")
         assert c.device.connections == (("mac", "88:a2:9e:80:87:9b"),)
 
-    @patch("sensors2mqtt.collector.local.base.socket.gethostname", return_value="rpiz-serial")
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="rpiz-serial")
     def test_mac_fallback_to_wlan0(self, _mock):
         """RPi Zero has no eth0, should fall back to wlan0."""
         c = make_rpi("rpizero_sysfs")

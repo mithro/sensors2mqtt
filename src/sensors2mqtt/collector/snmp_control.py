@@ -17,7 +17,6 @@ import json
 import logging
 import re
 import signal
-import socket
 import subprocess
 import threading
 import time
@@ -32,6 +31,7 @@ from sensors2mqtt.base import (
     client_id_for,
     connection_status_topic,
     host_id,
+    host_name,
     make_client,
 )
 from sensors2mqtt.collector.snmp import (
@@ -571,7 +571,7 @@ class PoeController:
         self._connected.set()
         conn_topic = connection_status_topic("snmp_control")
         client.publish(conn_topic, "online", retain=True)
-        publish_connection_diagnostic(client, host_id(), "snmp_control", socket.gethostname())
+        publish_connection_diagnostic(client, host_id(), "snmp_control", host_name())
         if not self._once:
             self._subscribe_commands(client)
 

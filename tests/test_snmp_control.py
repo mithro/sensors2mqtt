@@ -106,10 +106,7 @@ class TestConnectionAvailability:
             "sensors2mqtt.collector.snmp_control.publish_connection_diagnostic",
         ), patch(
             "sensors2mqtt.collector.snmp_control.host_id", return_value="testhost",
-        ), patch(
-            "sensors2mqtt.collector.snmp_control.socket",
-        ) as mock_socket:
-            mock_socket.gethostname.return_value = "testhost"
+        ):
             ctrl._on_mqtt_connected(client)
         client.publish.assert_any_call(conn_topic, "online", retain=True)
 

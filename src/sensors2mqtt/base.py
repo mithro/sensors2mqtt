@@ -64,6 +64,19 @@ def host_id() -> str:
     return socket.gethostname().split(".", 1)[0].replace("-", "_")
 
 
+def host_name() -> str:
+    """The host's short hostname for display, e.g. ``ten64`` or ``rpi5-pmod``.
+
+    Used as the Home Assistant device *name*. HA derives an entity's id from the
+    device name, so this must be the short hostname (domain stripped) to stay
+    consistent with :func:`host_id` and the MQTT topics — otherwise a host whose
+    ``gethostname()`` returns an FQDN (e.g. ``ten64.welland.mithis.com``) gets
+    entity ids like ``sensor.ten64_welland_mithis_com_*`` instead of
+    ``sensor.ten64_*``. Dashes are preserved (HA slugifies them itself).
+    """
+    return socket.gethostname().split(".", 1)[0]
+
+
 def client_id_for(module: str) -> str:
     """MQTT client-id for a collector: ``sensors2mqtt-{host}-{module}``.
 

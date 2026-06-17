@@ -233,6 +233,23 @@ class TestHostId:
         assert host_id() == "rpi_sdr_kraken"
 
 
+class TestHostName:
+    """host_name() is the HA device name; HA derives entity ids from it, so it
+    must be the short hostname (domain stripped) to match host_id()."""
+
+    @patch("sensors2mqtt.base.socket.gethostname")
+    def test_strips_domain(self, gethost):
+        from sensors2mqtt.base import host_name
+        gethost.return_value = "ten64.welland.mithis.com"
+        assert host_name() == "ten64"
+
+    @patch("sensors2mqtt.base.socket.gethostname")
+    def test_keeps_dashes(self, gethost):
+        from sensors2mqtt.base import host_name
+        gethost.return_value = "rpi5-pmod"
+        assert host_name() == "rpi5-pmod"
+
+
 class TestClientIdFor:
     """client_id_for builds the one consistent connection identity for every
     collector: ``sensors2mqtt-{host}-{module}`` where {host} is host_id(). Two
