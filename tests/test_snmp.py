@@ -262,6 +262,41 @@ class TestConfigLoading:
         assert len(switches) == 1
         assert switches[0].name == "test-m4300"
 
+    def test_load_config_unknown_model_raises(self, tmp_path):
+        """An unrecognised model must fail hard with a clear message."""
+        cfg = tmp_path / "snmp.toml"
+        cfg.write_text(
+            '[switches.test-typo]\n'
+            'model = "m4300x"\n'
+            'host = "test-typo.example.com"\n'
+            'community = "public"\n'
+        )
+        os.chmod(cfg, 0o600)
+        with pytest.raises(ValueError) as exc:
+            load_config(cfg)
+        msg = str(exc.value)
+        assert "test-typo" in msg      # names the offending switch
+        assert "m4300x" in msg         # names the bad model value
+        assert "s3300" in msg          # lists the valid models
+
+    def test_load_config_unknown_model_not_silently_dropped(self, tmp_path):
+        """A typo'd switch must abort the whole load, not silently drop."""
+        cfg = tmp_path / "snmp.toml"
+        cfg.write_text(
+            '[switches.good]\n'
+            'model = "m4300"\n'
+            'host = "good.example.com"\n'
+            'community = "public"\n'
+            '\n'
+            '[switches.bad]\n'
+            'model = "nope"\n'
+            'host = "bad.example.com"\n'
+            'community = "public"\n'
+        )
+        os.chmod(cfg, 0o600)
+        with pytest.raises(ValueError):
+            load_config(cfg)
+
 
 class TestVlanNameLookup:
     def test_fixture_gsm7252ps_vlan_names(self):
