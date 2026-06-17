@@ -27,6 +27,7 @@ sudo editor /etc/sensors2mqtt/env    # set MQTT credentials
 sudo apt install sensors2mqtt-snmp   # add sensors2mqtt-snmp-control if needed
 sudo editor /etc/sensors2mqtt/env    # set MQTT credentials
 sudo cp /usr/share/sensors2mqtt/snmp.toml.example /etc/sensors2mqtt/snmp.toml
+sudo chmod 0600 /etc/sensors2mqtt/snmp.toml
 sudo editor /etc/sensors2mqtt/snmp.toml
 sudo systemctl start sensors2mqtt-snmp
 ```
@@ -80,3 +81,10 @@ make setup        # creates .venv, installs deps
    ```
 
 3. Sensors appear automatically in Home Assistant via MQTT discovery.
+
+## A note on etckeeper
+
+If a host runs etckeeper, files under `/etc/sensors2mqtt/` (including `env` and
+`snmp.toml`) are committed into `/etc/.git`, so their credentials enter that
+git history. If that is undesirable on a given host, exclude the directory from
+etckeeper (e.g. add `/etc/sensors2mqtt` to `/etc/.gitignore`).
