@@ -1,5 +1,6 @@
 """Tests for SNMP collector."""
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -169,6 +170,13 @@ class TestModelDefinitions:
 
 
 class TestConfigLoading:
+    @pytest.fixture(autouse=True)
+    def _secure_shared_fixture(self):
+        # load_config now refuses group/world-readable files. The committed
+        # fixture checks out 0664; tighten it to 0600 for these tests. git
+        # tracks only the executable bit, so this leaves no diff.
+        os.chmod(CONFIG_FILE, 0o600)
+
     def test_load_config(self):
         """Load the test config fixture."""
         switches = load_config(CONFIG_FILE)
@@ -219,6 +227,35 @@ class TestConfigLoading:
         """When no config file found, FileNotFoundError is raised."""
         with pytest.raises(FileNotFoundError):
             load_config(Path("/nonexistent/snmp.toml"))
+
+    def test_load_config_insecure_perms_raises(self, tmp_path):
+        """A group/world-readable config must refuse to load."""
+        from sensors2mqtt.security import InsecureFilePermissionsError
+
+        cfg = tmp_path / "snmp.toml"
+        cfg.write_text(
+            '[switches.test-m4300]\n'
+            'model = "m4300"\n'
+            'host = "test-m4300.example.com"\n'
+            'community = "public"\n'
+        )
+        os.chmod(cfg, 0o644)
+        with pytest.raises(InsecureFilePermissionsError):
+            load_config(cfg)
+
+    def test_load_config_secure_perms_loads(self, tmp_path):
+        """A 0600 config loads normally."""
+        cfg = tmp_path / "snmp.toml"
+        cfg.write_text(
+            '[switches.test-m4300]\n'
+            'model = "m4300"\n'
+            'host = "test-m4300.example.com"\n'
+            'community = "public"\n'
+        )
+        os.chmod(cfg, 0o600)
+        switches = load_config(cfg)
+        assert len(switches) == 1
+        assert switches[0].name == "test-m4300"
 
 
 class TestVlanNameLookup:
