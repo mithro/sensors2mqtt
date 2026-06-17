@@ -288,9 +288,10 @@ def load_config(path: Path | None = None) -> list[SwitchConfig]:
     for name, sw_data in data.get("switches", {}).items():
         model_name = sw_data.get("model")
         if model_name not in MODELS:
-            log.error("Unknown model %r for switch %s (known: %s)",
-                      model_name, name, ", ".join(MODELS.keys()))
-            continue
+            raise ValueError(
+                f"Unknown model {model_name!r} for switch {name!r}; "
+                f"valid models: {', '.join(sorted(MODELS))}"
+            )
 
         model = MODELS[model_name]
         node_id = name.replace("-", "_")
