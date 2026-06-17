@@ -16,7 +16,7 @@ def _file_with_mode(tmp_path: Path, mode: int) -> Path:
 
 
 class TestEnsureSecureFile:
-    @pytest.mark.parametrize("mode", [0o600, 0o400])
+    @pytest.mark.parametrize("mode", [0o600, 0o400, 0o700, 0o500])
     def test_owner_only_modes_pass(self, tmp_path, mode):
         path = _file_with_mode(tmp_path, mode)
         ensure_secure_file(path)  # must not raise

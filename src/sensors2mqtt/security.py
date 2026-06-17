@@ -13,7 +13,8 @@ class InsecureFilePermissionsError(Exception):
         self.mode = mode
         super().__init__(
             f"{path} is group/other-accessible (mode {mode:#o}); "
-            f"credential files must be 0600. Fix: chmod 0600 {path}"
+            f"credential files must not be group- or world-accessible. "
+            f"Fix: chmod 0600 {path}"
         )
 
 
@@ -22,7 +23,8 @@ def ensure_secure_file(path: Path) -> None:
 
     Enforces 0600/0400 (the ssh private-key rule: any bit set in
     ``mode & 0o077`` is a failure). Credential files must not be group- or
-    world-readable.
+    world-readable. Note that ``path.stat()`` follows symlinks, so the mode of
+    the symlink target is what gets checked, not the symlink itself.
     """
     mode = path.stat().st_mode & 0o777
     if mode & 0o077:
