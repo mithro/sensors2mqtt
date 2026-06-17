@@ -67,6 +67,25 @@ class TestProbeThermalZones:
         temp_sensors = [ls for ls in c._sensors_list if "temp" in ls.sensor.suffix]
         assert len(temp_sensors) == 0
 
+    def test_armada_core_cluster_maps_to_cpu_temp(self, tmp_path):
+        """ten64-style zones: 'core-cluster' -> cpu_temp; 'soc' kept distinct."""
+        (tmp_path / "proc").mkdir()
+        (tmp_path / "proc/uptime").write_text("100.0 200.0\n")
+        (tmp_path / "proc/meminfo").write_text("MemTotal: 1024 kB\nMemAvailable: 512 kB\n")
+        (tmp_path / "proc/loadavg").write_text("0.1 0.2 0.3 1/10 100\n")
+        z0 = tmp_path / "sys/class/thermal/thermal_zone0"
+        z1 = tmp_path / "sys/class/thermal/thermal_zone1"
+        z0.mkdir(parents=True)
+        z1.mkdir(parents=True)
+        (z0 / "type").write_text("core-cluster\n")
+        (z0 / "temp").write_text("69000\n")
+        (z1 / "type").write_text("soc\n")
+        (z1 / "temp").write_text("68000\n")
+        c = LocalCollector(config=make_config(), sysfs_root=str(tmp_path))
+        suffixes = [ls.sensor.suffix for ls in c._sensors_list]
+        assert "cpu_temp" in suffixes   # core-cluster recognized as the CPU temp
+        assert "soc_temp" in suffixes   # soc kept as its own distinct sensor
+
 
 # ---------------------------------------------------------------------------
 # System diagnostics probing
