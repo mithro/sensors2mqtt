@@ -95,6 +95,36 @@ def test_poll_switch_gsm7252ps_fixture_values(snmpsim_agent):
     assert values["port02_poe_mw"] == 8200.0
 
 
+def test_poll_switch_s3300_fixture_values(snmpsim_agent):
+    """Assert sensor values from tests/fixtures/snmprec/s3300.snmprec.
+
+    s3300.snmprec records (4526.11 = Smart Managed Pro):
+      fans: 4526.11.43.1.6.1.4.1.{0,1,2} = 5018, 5273, 5357
+        → ordinals 0-2 → fan1_rpm=5018, fan2_rpm=5273, fan3_rpm=5357
+      temp: 4526.11.43.1.15.1.3.1 = 56
+      psu:  4526.11.43.1.8.1.5.1.0 = 56
+      PoE:  4526.11.15.1.1.1.2.1.1=12300, .2.1.2=0
+    """
+    host, port = snmpsim_agent
+    sw = _switch("s3300", "s3300", f"{host}:{port}", "s3300")
+    cfg = MqttConfig(host="x", port=1883, user="u", password="p")
+    collector = SnmpCollector(config=cfg, switches=[sw],
+                              client_factory=lambda s: SnmpClient(
+                                  s.host, s.community, timeout=2, retries=1))
+    values = collector.poll_switch(sw)
+    assert values is not None
+    # Three fans (instance order 1.0, 1.1, 1.2 → ordinals 0, 1, 2)
+    assert values["fan1_rpm"] == 5018
+    assert values["fan2_rpm"] == 5273
+    assert values["fan3_rpm"] == 5357
+    # Temperature and PSU
+    assert values["temp"] == 56
+    assert values["psu_power"] == 56
+    # PoE per-port walk
+    assert values["port01_poe_mw"] == 12300.0
+    assert values["port02_poe_mw"] == 0.0
+
+
 def test_poe_controller_poll_all_ports(snmpsim_agent):
     """PoeController.poll_all_ports reads PoE admin state from snmpsim.
 

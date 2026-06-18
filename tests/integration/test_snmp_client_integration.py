@@ -1,7 +1,12 @@
 """Real ezsnmp against a local snmpsim agent. Marked integration."""
 import pytest
 
-from sensors2mqtt.collector.snmp import _FM_BOX
+from sensors2mqtt.collector.snmp import (
+    _FM_BOX,
+    LLDP_CHASSIS_OID,
+    format_mac,
+    parse_lldp_chassis_ids,
+)
 from sensors2mqtt.snmp_client import SnmpClient
 
 pytestmark = pytest.mark.integration
@@ -24,8 +29,21 @@ def test_walk_returns_full_numeric_oids(snmpsim_agent):
 def test_get_bridge_mac_decodes(snmpsim_agent):
     row = client(snmpsim_agent).get("1.3.6.1.2.1.17.1.1.0")  # dot1dBaseBridgeAddress
     assert row is not None
-    # Document the real MAC encoding so Task 3's format_mac handles it.
-    assert row.snmp_type in ("OCTETSTR", "HEX-STRING", "STRING")
+    # m4300.snmprec: 1.3.6.1.2.1.17.1.1.0|4x|0011223344aa → "00:11:22:33:44:aa"
+    assert format_mac(row) == "00:11:22:33:44:aa"
+
+
+def test_get_lldp_chassis_mac(snmpsim_agent):
+    """parse_lldp_chassis_ids returns expected {port: mac} from m4300 fixture.
+
+    m4300.snmprec LLDP chassis rows:
+      1.0.8802.1.1.2.1.4.1.1.5.117.1.3    |4x|001122334401  → port 1
+      1.0.8802.1.1.2.1.4.1.1.5.124134.21.43|4x|001122334402  → port 21
+    """
+    rows = client(snmpsim_agent).walk(LLDP_CHASSIS_OID)
+    macs = parse_lldp_chassis_ids(rows)
+    assert macs.get(1) == "00:11:22:33:44:01"
+    assert macs.get(21) == "00:11:22:33:44:02"
 
 
 def test_get_missing_oid_returns_none(snmpsim_agent):

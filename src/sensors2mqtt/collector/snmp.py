@@ -439,7 +439,7 @@ def parse_lldp_chassis_ids(rows: list[SnmpRow]) -> dict[int, str]:
         if not m:
             continue
         port = int(m.group(2))
-        mac = parse_hex_mac(row.value)
+        mac = format_mac(row)
         if mac and port not in results:
             results[port] = mac
     return results
@@ -449,13 +449,28 @@ LLDP_CHASSIS_OID = "1.0.8802.1.1.2.1.4.1.1.5"  # lldpRemChassisId
 
 
 def format_mac(row: SnmpRow) -> str | None:
-    """Format an ezsnmp MAC OCTET STRING row as 'aa:bb:cc:dd:ee:ff', or None."""
+    """Format an ezsnmp MAC OCTET STRING row as 'aa:bb:cc:dd:ee:ff', or None.
+
+    Handles four known representations from ezsnmp:
+    1. Separated hex (6 groups): "aa:bb:cc:dd:ee:ff", "aa bb cc dd ee ff",
+       "aa-bb-cc-dd-ee-ff" — normalised to colon-lowercase.
+    2. Contiguous 12-char hex (no separators): "0011223344aa" — split into pairs.
+    3. Raw 6-byte string: chr(0)..chr(255) — ord() each byte.
+    4. Space-separated hex fallback via parse_hex_mac.
+    Returns None for anything that is not a 6-byte MAC.
+    """
     v = row.value.strip()
+    # Branch 1: separated hex — exactly 6 groups separated by ":", " ", or "-"
     if re.fullmatch(r"(?:[0-9A-Fa-f]{2}[:\- ]){5}[0-9A-Fa-f]{2}", v):
         return v.replace("-", ":").replace(" ", ":").lower()
-    if len(v) == 6:  # raw bytes
+    # Branch 2: contiguous hex — exactly 12 hex chars, no separators
+    if re.fullmatch(r"[0-9A-Fa-f]{12}", v):
+        return ":".join(v[i:i+2].lower() for i in range(0, 12, 2))
+    # Branch 3: raw 6-byte string
+    if len(v) == 6:
         return ":".join(f"{ord(c):02x}" for c in v)
-    return parse_hex_mac(v)  # space-separated hex fallback
+    # Branch 4: space-separated hex fallback (parse_hex_mac)
+    return parse_hex_mac(v)
 
 
 def fetch_bridge_mac(client: SnmpClient, name: str) -> str | None:
@@ -712,11 +727,13 @@ class SnmpCollector:
             rows = self._client(switch).walk(IF_ALIAS_OID)
             success = True
             for row in rows:
-                port = int(row.oid.rsplit(".", 1)[-1])
+                last = row.oid.rsplit(".", 1)[-1]
+                if not last.isdigit():
+                    continue
                 alias = row.value.strip()
                 if not alias:
                     continue
-                descriptions[port] = alias
+                descriptions[int(last)] = alias
         except SnmpError as e:
             log.warning("%s: ifAlias walk error: %s", switch.name, e)
 

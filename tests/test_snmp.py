@@ -12,6 +12,7 @@ from sensors2mqtt.collector.snmp import (
     SwitchConfig,
     _box_walks,
     box_entity,
+    format_mac,
     load_config,
     parse_box_walk,
     parse_hex_mac,
@@ -21,6 +22,7 @@ from sensors2mqtt.collector.snmp import (
     snmpget_value,
 )
 from sensors2mqtt.security import InsecureFilePermissionsError
+from sensors2mqtt.snmp_client import SnmpRow
 from snmp_helpers import FakeSnmpClient, rows_from_snmpwalk_txt
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -517,6 +519,41 @@ class TestLldpParsing:
         assert neighbors2 is neighbors
 
 
+class TestFormatMac:
+    """format_mac handles all known ezsnmp MAC representations uniformly."""
+
+    EXPECTED = "00:11:22:33:44:aa"
+
+    def _row(self, value: str) -> SnmpRow:
+        return SnmpRow(oid="1.3.6.1.2.1.17.1.1.0", value=value, snmp_type="OCTETSTR")
+
+    def test_contiguous_hex_lowercase(self):
+        assert format_mac(self._row("0011223344aa")) == self.EXPECTED
+
+    def test_contiguous_hex_uppercase(self):
+        assert format_mac(self._row("0011223344AA")) == self.EXPECTED
+
+    def test_space_separated_hex(self):
+        assert format_mac(self._row("00 11 22 33 44 aa")) == self.EXPECTED
+
+    def test_colon_separated_hex_uppercase(self):
+        assert format_mac(self._row("00:11:22:33:44:AA")) == self.EXPECTED
+
+    def test_dash_separated_hex(self):
+        assert format_mac(self._row("00-11-22-33-44-aa")) == self.EXPECTED
+
+    def test_raw_bytes(self):
+        raw = "".join(chr(b) for b in (0x00, 0x11, 0x22, 0x33, 0x44, 0xaa))
+        assert format_mac(self._row(raw)) == self.EXPECTED
+
+    def test_seven_bytes_returns_none(self):
+        # 7 bytes contiguous hex (14 chars) — not a valid MAC
+        assert format_mac(self._row("0011223344aa55")) is None
+
+    def test_garbage_returns_none(self):
+        assert format_mac(self._row("not-a-mac-address")) is None
+
+
 class TestSnmpCollector:
     def make_collector(self, switches=None):
         from sensors2mqtt.base import MqttConfig
@@ -543,19 +580,6 @@ class TestSnmpCollector:
         }
 
     def test_poll_switch_all_fail(self):
-        sw = _make_switch("test-m4300", "m4300")
-        from sensors2mqtt.base import MqttConfig
-        cfg = MqttConfig(host="test", port=1883, user="u", password="p")
-        fake = FakeSnmpClient(
-            walk_rows={},
-            walk_error=(".6.1.4", ".15.1.3", ".8.1.5"),
-        )
-        collector = SnmpCollector(config=cfg, switches=[sw],
-                                  client_factory=lambda s: fake)
-        values = collector.poll_switch(sw)
-        assert values is None
-
-    def test_poll_switch_timeout(self):
         sw = _make_switch("test-m4300", "m4300")
         from sensors2mqtt.base import MqttConfig
         cfg = MqttConfig(host="test", port=1883, user="u", password="p")
