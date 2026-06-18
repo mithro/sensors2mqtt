@@ -313,5 +313,5 @@ class RpiCollector(LocalCollector):
         parts = [f"CPU={cpu}°C", f"Mem={mem}%"]
         if fan is not None:
             parts.append(f"Fan={fan}RPM")
-        parts.append(f"UV={uv}")
+        parts.append(f"Undervolt={uv}")
         log.info("Published: %s", "  ".join(parts))

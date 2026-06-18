@@ -1,5 +1,6 @@
 """Tests for RpiCollector specialization."""
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -342,3 +343,19 @@ class TestPollIntegration:
         # No RPi-specific hw sensors
         assert "rp1_v1" not in values
         assert "fan_rpm" not in values
+
+
+class TestLogSummary:
+    def test_undervolt_label_is_clear(self, caplog):
+        """The summary log spells out under-voltage, not the cryptic 'UV'."""
+        c = make_rpi("rpi5_sysfs")
+        with caplog.at_level(logging.INFO, logger="sensors2mqtt.collector.local.rpi"):
+            c._log_summary(
+                {
+                    "cpu_temp": "45.0",
+                    "mem_used_percent": "12.3",
+                    "throttle_under_voltage": "OFF",
+                }
+            )
+        assert "Undervolt=OFF" in caplog.text
+        assert "UV=" not in caplog.text
