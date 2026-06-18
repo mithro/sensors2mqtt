@@ -16,7 +16,7 @@ jobs:
             build-essential ca-certificates git \
             dpkg-dev debhelper dh-python pybuild-plugin-pyproject \
             python3-all python3-hatchling python3-hatch-vcs python3-setuptools-scm \
-            python3-paho-mqtt python3-pytest python3-requests
+            python3-paho-mqtt python3-pytest python3-requests python3-ezsnmp
 
       - uses: actions/checkout@v4
         with:
