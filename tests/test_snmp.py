@@ -3,7 +3,6 @@
 import logging
 import os
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -18,11 +17,11 @@ from sensors2mqtt.collector.snmp import (
     parse_hex_mac,
     parse_lldp_chassis_ids,
     parse_lldp_walk,
-    parse_snmpget_value,
     parse_snmpwalk,
     snmpget_value,
 )
 from sensors2mqtt.security import InsecureFilePermissionsError
+from snmp_helpers import FakeSnmpClient, rows_from_snmpwalk_txt
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CONFIG_FILE = Path(__file__).parent / "fixtures" / "snmp_test.toml"
@@ -60,76 +59,56 @@ def _box_test_switch(base: str | None = None) -> SwitchConfig:
     )
 
 
-def _box_walk_side_effect(responses: dict[str, str]):
-    """subprocess.run side effect: map walked-OID suffix -> stdout."""
-    def side_effect(*args, **kwargs):
-        oid = args[0][-1]
-        for suffix, text in responses.items():
-            if oid.endswith(suffix):
-                return MagicMock(returncode=0, stdout=text, stderr="")
-        return MagicMock(returncode=0, stdout="", stderr="")
-    return side_effect
-
-
-class TestParseSnmpgetValue:
-    def test_integer(self):
-        assert parse_snmpget_value("iso.3.6.1... = INTEGER: 42") == "42"
-
-    def test_gauge32(self):
-        assert parse_snmpget_value("iso.3.6.1... = Gauge32: 1234") == "1234"
-
-    def test_string_quoted(self):
-        assert parse_snmpget_value('iso.3.6.1... = STRING: "5280"') == "5280"
-
-    def test_no_match(self):
-        assert parse_snmpget_value("No Such Object") is None
-
-    def test_empty_value(self):
-        assert parse_snmpget_value('iso.3.6.1... = STRING: ""') is None
+def collector_with(switch, *, walk_rows=None, get_rows=None):
+    from sensors2mqtt.base import MqttConfig
+    cfg = MqttConfig(host="test", port=1883, user="u", password="p")
+    fake = FakeSnmpClient(walk_rows=walk_rows or {}, get_rows=get_rows or {})
+    return SnmpCollector(config=cfg, switches=[switch],
+                         client_factory=lambda sw: fake)
 
 
 class TestParseSnmpwalk:
     def test_parses_gauge32(self):
-        output = (
+        rows = rows_from_snmpwalk_txt(
             "iso.3.6.1.4.1.4526.10.15.1.1.1.2.1.1 = Gauge32: 3300\n"
             "iso.3.6.1.4.1.4526.10.15.1.1.1.2.1.2 = Gauge32: 2500\n"
             "iso.3.6.1.4.1.4526.10.15.1.1.1.2.1.3 = Gauge32: 0\n"
         )
-        result = parse_snmpwalk(output)
-        assert result == [(1, "3300"), (2, "2500"), (3, "0")]
+        assert parse_snmpwalk(rows) == [(1, "3300"), (2, "2500"), (3, "0")]
 
     def test_parses_integer(self):
-        output = "iso.3.6.1.4.1.4526.10.43.1.15.1.3.1 = INTEGER: 65\n"
-        result = parse_snmpwalk(output)
-        assert result == [(1, "65")]
+        rows = rows_from_snmpwalk_txt(
+            "iso.3.6.1.4.1.4526.10.43.1.15.1.3.1 = INTEGER: 65\n"
+        )
+        assert parse_snmpwalk(rows) == [(1, "65")]
 
     def test_empty_output(self):
-        assert parse_snmpwalk("") == []
+        assert parse_snmpwalk([]) == []
 
     def test_fixture_m4300_fans(self):
-        text = (FIXTURES / "snmpwalk_m4300_fans.txt").read_text()
-        result = parse_snmpwalk(text)
+        rows = rows_from_snmpwalk_txt((FIXTURES / "snmpwalk_m4300_fans.txt").read_text())
+        result = parse_snmpwalk(rows)
         assert len(result) > 0
-        speeds = [(idx, val) for idx, val in result if val.isdigit() and int(val) > 100]
+        speeds = [(i, v) for i, v in result if v.isdigit() and int(v) > 100]
         assert len(speeds) >= 2
 
     def test_fixture_gsm7252ps_poe(self):
-        text = (FIXTURES / "snmpwalk_gsm7252ps_poe.txt").read_text()
-        result = parse_snmpwalk(text)
+        rows = rows_from_snmpwalk_txt((FIXTURES / "snmpwalk_gsm7252ps_poe.txt").read_text())
+        result = parse_snmpwalk(rows)
         assert len(result) > 0
         indices = {idx for idx, _ in result}
         assert len(indices) >= 48
 
     def test_fixture_s3300_fans(self):
-        text = (FIXTURES / "snmpwalk_s3300_fans.txt").read_text()
-        result = parse_snmpwalk(text)
+        rows = rows_from_snmpwalk_txt((FIXTURES / "snmpwalk_s3300_fans.txt").read_text())
+        result = parse_snmpwalk(rows)
         assert len(result) > 0
-        speeds = [(idx, val) for idx, val in result if val.isdigit() and int(val) > 100]
+        speeds = [(i, v) for i, v in result if v.isdigit() and int(v) > 100]
         assert len(speeds) >= 3
 
     def test_fixture_s3300_poe(self):
-        text = (FIXTURES / "snmpwalk_s3300_poe.txt").read_text()
-        result = parse_snmpwalk(text)
+        rows = rows_from_snmpwalk_txt((FIXTURES / "snmpwalk_s3300_poe.txt").read_text())
+        result = parse_snmpwalk(rows)
         assert len(result) > 0
         indices = {idx for idx, _ in result}
         assert len(indices) >= 48
@@ -139,53 +118,57 @@ class TestParseBoxWalk:
     BASE = "1.3.6.1.4.1.4526.10.43.1.6.1.4"
 
     def test_single_component_instance(self):
-        output = 'iso.3.6.1.4.1.4526.10.43.1.6.1.4.0 = STRING: "3500"\n'
-        assert parse_box_walk(output, self.BASE) == [("0", "3500")]
+        rows = rows_from_snmpwalk_txt(
+            'iso.3.6.1.4.1.4526.10.43.1.6.1.4.0 = STRING: "3500"\n'
+        )
+        assert parse_box_walk(rows, self.BASE) == [("0", "3500")]
 
     def test_multi_component_instance(self):
-        output = (
+        rows = rows_from_snmpwalk_txt(
             'iso.3.6.1.4.1.4526.10.43.1.6.1.4.1.0 = STRING: "5280"\n'
             'iso.3.6.1.4.1.4526.10.43.1.6.1.4.1.1 = STRING: "4560"\n'
         )
-        assert parse_box_walk(output, self.BASE) == [("1.0", "5280"), ("1.1", "4560")]
+        assert parse_box_walk(rows, self.BASE) == [("1.0", "5280"), ("1.1", "4560")]
 
     def test_integer_values_unquoted(self):
         base = "1.3.6.1.4.1.4526.10.43.1.8.1.5"
-        output = (
+        rows = rows_from_snmpwalk_txt(
             "iso.3.6.1.4.1.4526.10.43.1.8.1.5.1.0 = INTEGER: 53\n"
             "iso.3.6.1.4.1.4526.10.43.1.8.1.5.1.3 = INTEGER: 35\n"
         )
-        assert parse_box_walk(output, base) == [("1.0", "53"), ("1.3", "35")]
+        assert parse_box_walk(rows, base) == [("1.0", "53"), ("1.3", "35")]
 
     def test_not_supported_passed_through(self):
         """The parser returns the raw marker; skipping is the poller's job."""
-        output = 'iso.3.6.1.4.1.4526.10.43.1.6.1.4.1 = STRING: "Not Supported"\n'
-        assert parse_box_walk(output, self.BASE) == [("1", "Not Supported")]
+        rows = rows_from_snmpwalk_txt(
+            'iso.3.6.1.4.1.4526.10.43.1.6.1.4.1 = STRING: "Not Supported"\n'
+        )
+        assert parse_box_walk(rows, self.BASE) == [("1", "Not Supported")]
 
     def test_filters_lines_outside_base(self):
         """Feeding a full-table walk only yields rows under the value column."""
-        text = (FIXTURES / "snmpwalk_m4300_fans.txt").read_text()
-        result = parse_box_walk(text, self.BASE)
+        rows = rows_from_snmpwalk_txt((FIXTURES / "snmpwalk_m4300_fans.txt").read_text())
+        result = parse_box_walk(rows, self.BASE)
         # Fixture has columns 1-6; only column 4 (speed) rows are under BASE
         assert result == [("1.0", "5280"), ("1.1", "4560")]
 
     def test_no_false_prefix_match(self):
         """...6.1.4 must not match ...6.1.40 or bare ...6.1.4 itself."""
-        output = (
+        rows = rows_from_snmpwalk_txt(
             "iso.3.6.1.4.1.4526.10.43.1.6.1.40.1 = INTEGER: 7\n"
             "iso.3.6.1.4.1.4526.10.43.1.6.1.4 = INTEGER: 8\n"
         )
-        assert parse_box_walk(output, self.BASE) == []
+        assert parse_box_walk(rows, self.BASE) == []
 
     def test_no_such_object_line_ignored(self):
-        output = (
+        rows = rows_from_snmpwalk_txt(
             "iso.3.6.1.4.1.4526.10.43.1.6.1.4 = "
             "No Such Object available on this agent at this OID\n"
         )
-        assert parse_box_walk(output, self.BASE) == []
+        assert parse_box_walk(rows, self.BASE) == []
 
     def test_empty_output(self):
-        assert parse_box_walk("", self.BASE) == []
+        assert parse_box_walk([], self.BASE) == []
 
 
 class TestBoxEntity:
@@ -430,36 +413,36 @@ class TestConfigLoading:
 class TestVlanNameLookup:
     def test_fixture_gsm7252ps_vlan_names(self):
         """VLAN name fixture parses correctly."""
-        text = (FIXTURES / "snmpwalk_gsm7252ps_vlan_names.txt").read_text()
-        from sensors2mqtt.collector.snmp import parse_snmpwalk
-        result = parse_snmpwalk(text)
+        rows = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_gsm7252ps_vlan_names.txt").read_text()
+        )
+        result = parse_snmpwalk(rows)
         names = {idx: val for idx, val in result}
         assert names[1] == "default"
         assert names[90] == "iot"
         assert names[121] == "t-fpgas"
         assert len(names) >= 10
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_fetch_vlan_names(self, mock_run):
+    def test_fetch_vlan_names(self):
         text = (FIXTURES / "snmpwalk_gsm7252ps_vlan_names.txt").read_text()
-        mock_run.return_value = MagicMock(returncode=0, stdout=text, stderr="")
-        from sensors2mqtt.base import MqttConfig
-        config = MqttConfig(host="test", port=1883, user="u", password="p")
         sw = _make_switch("test-gsm7252ps", "gsm7252ps")
-        collector = SnmpCollector(config=config, switches=[sw])
+        collector = collector_with(sw, walk_rows={
+            "4.3.1.1": rows_from_snmpwalk_txt(text),
+        })
         names = collector.fetch_vlan_names(sw)
         assert names[90] == "iot"
         assert names[1] == "default"
         # Second call should use cache
         names2 = collector.fetch_vlan_names(sw)
         assert names2 is names
-        assert mock_run.call_count == 1
 
 
 class TestLldpParsing:
     def test_parse_lldp_walk_sysname(self):
-        text = (FIXTURES / "snmpwalk_gsm7252ps_lldp_sysname.txt").read_text()
-        result = parse_lldp_walk(text, "9")
+        rows = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_gsm7252ps_lldp_sysname.txt").read_text()
+        )
+        result = parse_lldp_walk(rows, "9")
         # Port 1 → rpi5-pmod (from OID ...9.150.1.21)
         assert result[1] == "rpi5-pmod"
         # Port 50 → sw-netgear-s3300-1 (from OID ...9.44.50.1)
@@ -469,8 +452,10 @@ class TestLldpParsing:
         assert len(result) >= 8
 
     def test_parse_lldp_walk_portdesc(self):
-        text = (FIXTURES / "snmpwalk_gsm7252ps_lldp_portdesc.txt").read_text()
-        result = parse_lldp_walk(text, "8")
+        rows = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_gsm7252ps_lldp_portdesc.txt").read_text()
+        )
+        result = parse_lldp_walk(rows, "8")
         # Port 1 → eth0 (rpi5-pmod's interface)
         assert result[1] == "eth0"
         # Port 50 → 1/xg51 (S3300 uplink port)
@@ -490,44 +475,37 @@ class TestLldpParsing:
         assert parse_hex_mac("") is None
 
     def test_parse_lldp_chassis_ids(self):
-        output = (
+        rows = rows_from_snmpwalk_txt(
             "iso.0.8802.1.1.2.1.4.1.1.5.0.1.1 = Hex-STRING: E0 91 F5 0C D6 DB \n"
             "iso.0.8802.1.1.2.1.4.1.1.5.0.2.1 = Hex-STRING: DC A6 32 12 34 56 \n"
             "iso.0.8802.1.1.2.1.4.1.1.5.0.49.1 = Hex-STRING: 8C 3B AD 6B BB E3 \n"
         )
-        result = parse_lldp_chassis_ids(output)
+        result = parse_lldp_chassis_ids(rows)
         assert result[1] == "e0:91:f5:0c:d6:db"
         assert result[2] == "dc:a6:32:12:34:56"
         assert result[49] == "8c:3b:ad:6b:bb:e3"
 
     def test_parse_lldp_chassis_ids_filters_non_mac(self):
-        output = (
+        rows = rows_from_snmpwalk_txt(
             "iso.0.8802.1.1.2.1.4.1.1.5.0.1.1 = Hex-STRING: E0 91 F5 0C D6 DB \n"
             # 7 bytes = not a MAC, should be filtered out
             "iso.0.8802.1.1.2.1.4.1.1.5.0.3.1 = Hex-STRING: 01 04 0A 01 05 0B 00 \n"
         )
-        result = parse_lldp_chassis_ids(output)
+        result = parse_lldp_chassis_ids(rows)
         assert result == {1: "e0:91:f5:0c:d6:db"}  # port 3 filtered out
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_fetch_lldp_neighbors(self, mock_run):
-        sysname_text = (FIXTURES / "snmpwalk_gsm7252ps_lldp_sysname.txt").read_text()
-        portdesc_text = (FIXTURES / "snmpwalk_gsm7252ps_lldp_portdesc.txt").read_text()
-
-        def side_effect(*args, **kwargs):
-            cmd = args[0]
-            oid = cmd[-1]
-            if oid.endswith(".9"):
-                return MagicMock(returncode=0, stdout=sysname_text, stderr="")
-            elif oid.endswith(".8"):
-                return MagicMock(returncode=0, stdout=portdesc_text, stderr="")
-            return MagicMock(returncode=1, stdout="", stderr="unknown OID")
-
-        mock_run.side_effect = side_effect
-        from sensors2mqtt.base import MqttConfig
-        config = MqttConfig(host="test", port=1883, user="u", password="p")
+    def test_fetch_lldp_neighbors(self):
+        sysname_rows = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_gsm7252ps_lldp_sysname.txt").read_text()
+        )
+        portdesc_rows = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_gsm7252ps_lldp_portdesc.txt").read_text()
+        )
         sw = _make_switch("test-gsm7252ps", "gsm7252ps")
-        collector = SnmpCollector(config=config, switches=[sw])
+        collector = collector_with(sw, walk_rows={
+            ".9": sysname_rows,
+            ".8": portdesc_rows,
+        })
         neighbors = collector.fetch_lldp_neighbors(sw)
         # Port 1 should be "eth0.rpi5-pmod"
         assert "rpi5-pmod" in neighbors[1]
@@ -547,101 +525,120 @@ class TestSnmpCollector:
             switches = [_make_switch("test-m4300", "m4300")]
         return SnmpCollector(config=config, switches=switches)
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_poll_switch_success(self, mock_run):
-        mock_run.side_effect = _box_walk_side_effect({
-            ".6.1.4": (FIXTURES / "snmpwalk_m4300_fans.txt").read_text(),
-            ".15.1.3": (FIXTURES / "snmpwalk_m4300_thermal.txt").read_text(),
-            ".8.1.5": (FIXTURES / "snmpwalk_m4300_psu.txt").read_text(),
-        })
+    def test_poll_switch_success(self):
         sw = _make_switch("test-m4300", "m4300")
-        collector = self.make_collector(switches=[sw])
-        values = collector.poll_switch(sw)
-        assert values == {
+        collector = collector_with(sw, walk_rows={
+            ".6.1.4": rows_from_snmpwalk_txt(
+                (FIXTURES / "snmpwalk_m4300_fans.txt").read_text()
+            ),
+            ".15.1.3": rows_from_snmpwalk_txt(
+                (FIXTURES / "snmpwalk_m4300_thermal.txt").read_text()
+            ),
+            ".8.1.5": rows_from_snmpwalk_txt(
+                (FIXTURES / "snmpwalk_m4300_psu.txt").read_text()
+            ),
+        })
+        assert collector.poll_switch(sw) == {
             "fan1_rpm": 5280, "fan2_rpm": 4560, "temp": 65, "psu_power": 65,
         }
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_poll_switch_all_fail(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Timeout")
+    def test_poll_switch_all_fail(self):
         sw = _make_switch("test-m4300", "m4300")
-        collector = self.make_collector(switches=[sw])
+        from sensors2mqtt.base import MqttConfig
+        cfg = MqttConfig(host="test", port=1883, user="u", password="p")
+        fake = FakeSnmpClient(
+            walk_rows={},
+            walk_error=(".6.1.4", ".15.1.3", ".8.1.5"),
+        )
+        collector = SnmpCollector(config=cfg, switches=[sw],
+                                  client_factory=lambda s: fake)
         values = collector.poll_switch(sw)
         assert values is None
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_poll_switch_timeout(self, mock_run):
-        import subprocess
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd="snmpget", timeout=10)
+    def test_poll_switch_timeout(self):
         sw = _make_switch("test-m4300", "m4300")
-        collector = self.make_collector(switches=[sw])
+        from sensors2mqtt.base import MqttConfig
+        cfg = MqttConfig(host="test", port=1883, user="u", password="p")
+        fake = FakeSnmpClient(
+            walk_rows={},
+            walk_error=(".6.1.4", ".15.1.3", ".8.1.5"),
+        )
+        collector = SnmpCollector(config=cfg, switches=[sw],
+                                  client_factory=lambda s: fake)
         values = collector.poll_switch(sw)
         assert values is None
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_poll_switch_partial_failure(self, mock_run):
+    def test_poll_switch_partial_failure(self):
         """A failed fan walk still yields temperature and PSU values."""
-        thermal = (FIXTURES / "snmpwalk_m4300_thermal.txt").read_text()
-        psu = (FIXTURES / "snmpwalk_m4300_psu.txt").read_text()
-
-        def side_effect(*args, **kwargs):
-            oid = args[0][-1]
-            if oid.endswith(".6.1.4"):
-                return MagicMock(returncode=1, stdout="", stderr="Timeout")
-            if oid.endswith(".15.1.3"):
-                return MagicMock(returncode=0, stdout=thermal, stderr="")
-            if oid.endswith(".8.1.5"):
-                return MagicMock(returncode=0, stdout=psu, stderr="")
-            return MagicMock(returncode=0, stdout="", stderr="")
-
-        mock_run.side_effect = side_effect
+        thermal_rows = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_m4300_thermal.txt").read_text()
+        )
+        psu_rows = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_m4300_psu.txt").read_text()
+        )
         sw = _make_switch("test-m4300", "m4300")
-        collector = self.make_collector(switches=[sw])
+        from sensors2mqtt.base import MqttConfig
+        cfg = MqttConfig(host="test", port=1883, user="u", password="p")
+        fake = FakeSnmpClient(
+            walk_rows={
+                ".15.1.3": thermal_rows,
+                ".8.1.5": psu_rows,
+            },
+            walk_error=(".6.1.4",),
+        )
+        collector = SnmpCollector(config=cfg, switches=[sw],
+                                  client_factory=lambda s: fake)
         values = collector.poll_switch(sw)
         assert values == {"temp": 65, "psu_power": 65}
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_poll_walk_switch(self, mock_run):
-        poe_output = (
+    def test_poll_walk_switch(self):
+        poe_rows = rows_from_snmpwalk_txt(
             "iso.3.6.1.4.1.4526.10.15.1.1.1.2.1.1 = Gauge32: 3300\n"
             "iso.3.6.1.4.1.4526.10.15.1.1.1.2.1.2 = Gauge32: 2500\n"
             "iso.3.6.1.4.1.4526.10.15.1.1.1.2.1.5 = Gauge32: 5600\n"
         )
-        mock_run.return_value = MagicMock(returncode=0, stdout=poe_output, stderr="")
         sw = _make_switch("test-gsm7252ps", "gsm7252ps")
-        collector = self.make_collector(switches=[sw])
+        collector = collector_with(sw, walk_rows={
+            ".2.1": poe_rows,
+        })
         values = collector.poll_switch(sw)
         assert values is not None
         assert "port01_poe_mw" in values
         assert values["port01_poe_mw"] == 3300.0
         assert values["port05_poe_mw"] == 5600.0
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_poll_box_sensors_m4300_layout(self, mock_run):
+    def test_poll_box_sensors_m4300_layout(self):
         """Two-component instances (unit.fan) — suffix contract preserved."""
-        mock_run.side_effect = _box_walk_side_effect({
-            ".6.1.4": (FIXTURES / "snmpwalk_m4300_fans.txt").read_text(),
-            ".15.1.3": (FIXTURES / "snmpwalk_m4300_thermal.txt").read_text(),
-            ".8.1.5": (FIXTURES / "snmpwalk_m4300_psu.txt").read_text(),
-        })
         sw = _box_test_switch()
-        collector = self.make_collector(switches=[sw])
+        collector = collector_with(sw, walk_rows={
+            ".6.1.4": rows_from_snmpwalk_txt(
+                (FIXTURES / "snmpwalk_m4300_fans.txt").read_text()
+            ),
+            ".15.1.3": rows_from_snmpwalk_txt(
+                (FIXTURES / "snmpwalk_m4300_thermal.txt").read_text()
+            ),
+            ".8.1.5": rows_from_snmpwalk_txt(
+                (FIXTURES / "snmpwalk_m4300_psu.txt").read_text()
+            ),
+        })
         values = collector.poll_switch(sw)
         assert values == {
             "fan1_rpm": 5280, "fan2_rpm": 4560, "temp": 65, "psu_power": 65,
         }
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_poll_box_sensors_gsm7252ps_layout(self, mock_run, caplog):
+    def test_poll_box_sensors_gsm7252ps_layout(self, caplog):
         """Single-component fan instances, Not Supported slot, 4 PSU rails."""
-        mock_run.side_effect = _box_walk_side_effect({
-            ".6.1.4": (FIXTURES / "snmpwalk_gsm7252ps_fans.txt").read_text(),
-            ".8.1.5": (FIXTURES / "snmpwalk_gsm7252ps_psu.txt").read_text(),
-            # .15.1.3 (temp) falls through to empty output — the GSM7252PS
+        sw = _box_test_switch()
+        collector = collector_with(sw, walk_rows={
+            ".6.1.4": rows_from_snmpwalk_txt(
+                (FIXTURES / "snmpwalk_gsm7252ps_fans.txt").read_text()
+            ),
+            ".8.1.5": rows_from_snmpwalk_txt(
+                (FIXTURES / "snmpwalk_gsm7252ps_psu.txt").read_text()
+            ),
+            # .15.1.3 (temp) falls through to empty rows — the GSM7252PS
             # exposes nothing readable there
         })
-        sw = _box_test_switch()
-        collector = self.make_collector(switches=[sw])
         with caplog.at_level(logging.WARNING):
             values = collector.poll_switch(sw)
         assert values == {
@@ -652,53 +649,55 @@ class TestSnmpCollector:
         # The "Not Supported" placeholder is expected hardware, not an error
         assert not any("non-integer" in r.getMessage() for r in caplog.records)
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_poll_box_sensors_s3300_layout(self, mock_run):
+    def test_poll_box_sensors_s3300_layout(self):
         """Smart Managed Pro (4526.11) walks: 3 fans, temp, single PSU rail."""
         from sensors2mqtt.collector.snmp import _SMP_BOX
-        mock_run.side_effect = _box_walk_side_effect({
-            ".6.1.4": (FIXTURES / "snmpwalk_s3300_fans.txt").read_text(),
-            ".15.1.3": (FIXTURES / "snmpwalk_s3300_thermal.txt").read_text(),
-            ".8.1.5": (FIXTURES / "snmpwalk_s3300_psu.txt").read_text(),
-        })
         sw = _box_test_switch(_SMP_BOX)
-        collector = self.make_collector(switches=[sw])
+        collector = collector_with(sw, walk_rows={
+            ".6.1.4": rows_from_snmpwalk_txt(
+                (FIXTURES / "snmpwalk_s3300_fans.txt").read_text()
+            ),
+            ".15.1.3": rows_from_snmpwalk_txt(
+                (FIXTURES / "snmpwalk_s3300_thermal.txt").read_text()
+            ),
+            ".8.1.5": rows_from_snmpwalk_txt(
+                (FIXTURES / "snmpwalk_s3300_psu.txt").read_text()
+            ),
+        })
         values = collector.poll_switch(sw)
         assert values == {
             "fan1_rpm": 5018, "fan2_rpm": 5273, "fan3_rpm": 5357,
             "temp": 56, "psu_power": 56,
         }
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_poll_box_warns_on_unexpected_string(self, mock_run, caplog):
+    def test_poll_box_warns_on_unexpected_string(self, caplog):
         """Unknown non-integer values must be visible, not silently dropped."""
-        fans = (
+        fans_rows = rows_from_snmpwalk_txt(
             'iso.3.6.1.4.1.4526.10.43.1.6.1.4.0 = STRING: "3500"\n'
             'iso.3.6.1.4.1.4526.10.43.1.6.1.4.1 = STRING: "garbage"\n'
         )
-        mock_run.side_effect = _box_walk_side_effect({".6.1.4": fans})
         sw = _box_test_switch()
-        collector = self.make_collector(switches=[sw])
+        collector = collector_with(sw, walk_rows={".6.1.4": fans_rows})
         with caplog.at_level(logging.WARNING):
             values = collector.poll_switch(sw)
         assert values == {"fan1_rpm": 3500}
         assert any("non-integer fan reading" in r.getMessage()
                    for r in caplog.records)
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_poll_box_walk_failure_skips_kind(self, mock_run):
+    def test_poll_box_walk_failure_skips_kind(self):
         """One failed walk doesn't lose the other kinds."""
-        psu = (FIXTURES / "snmpwalk_m4300_psu.txt").read_text()
-
-        def side_effect(*args, **kwargs):
-            oid = args[0][-1]
-            if oid.endswith(".8.1.5"):
-                return MagicMock(returncode=0, stdout=psu, stderr="")
-            return MagicMock(returncode=1, stdout="", stderr="Timeout")
-
-        mock_run.side_effect = side_effect
+        psu_rows = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_m4300_psu.txt").read_text()
+        )
         sw = _box_test_switch()
-        collector = self.make_collector(switches=[sw])
+        from sensors2mqtt.base import MqttConfig
+        cfg = MqttConfig(host="test", port=1883, user="u", password="p")
+        fake = FakeSnmpClient(
+            walk_rows={".8.1.5": psu_rows},
+            walk_error=(".6.1.4", ".15.1.3"),
+        )
+        collector = SnmpCollector(config=cfg, switches=[sw],
+                                  client_factory=lambda s: fake)
         values = collector.poll_switch(sw)
         assert values == {"psu_power": 65}
 
@@ -761,31 +760,28 @@ class TestSnmpCollector:
         assert collector.state_topic(sw) == "sensors2mqtt/test_m4300/state"
         assert collector.avail_topic(sw) == "sensors2mqtt/test_m4300/status"
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_poll_port_status_m4300(self, mock_run):
+    def test_poll_port_status_m4300(self):
         """M4300 (no PoE) returns link/speed/vlan for all 24 ports."""
-        oper_text = (FIXTURES / "snmpwalk_m4300_ifoperstatus.txt").read_text()
-        speed_text = (FIXTURES / "snmpwalk_m4300_ifhighspeed.txt").read_text()
-        pvid_text = (FIXTURES / "snmpwalk_m4300_dot1qpvid.txt").read_text()
-        vlan_names_text = (FIXTURES / "snmpwalk_m4300_vlan_names.txt").read_text()
-
-        def side_effect(*args, **kwargs):
-            cmd = args[0]
-            oid = cmd[-1]
-            if "2.2.1.8" in oid:
-                return MagicMock(returncode=0, stdout=oper_text, stderr="")
-            elif "31.1.1.1.15" in oid:
-                return MagicMock(returncode=0, stdout=speed_text, stderr="")
-            elif "17.7.1.4.5.1.1" in oid:
-                return MagicMock(returncode=0, stdout=pvid_text, stderr="")
-            elif "17.7.1.4.3.1.1" in oid:
-                return MagicMock(returncode=0, stdout=vlan_names_text, stderr="")
-            # ifAlias and LLDP return empty
-            return MagicMock(returncode=0, stdout="", stderr="")
-
-        mock_run.side_effect = side_effect
+        oper_rows = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_m4300_ifoperstatus.txt").read_text()
+        )
+        speed_rows = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_m4300_ifhighspeed.txt").read_text()
+        )
+        pvid_rows = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_m4300_dot1qpvid.txt").read_text()
+        )
+        vlan_names_rows = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_m4300_vlan_names.txt").read_text()
+        )
         sw = _make_switch("test-m4300", "m4300")
-        collector = self.make_collector(switches=[sw])
+        collector = collector_with(sw, walk_rows={
+            "2.2.1.8": oper_rows,
+            "31.1.1.1.15": speed_rows,
+            "17.7.1.4.5.1.1": pvid_rows,
+            "17.7.1.4.3.1.1": vlan_names_rows,
+            # ifAlias and LLDP return empty (no suffix match → [])
+        })
         ports = collector.poll_port_status(sw)
 
         # M4300 has 24 ports
@@ -797,10 +793,9 @@ class TestSnmpCollector:
         assert "poe_admin" not in ports[1]
         assert "poe_status" not in ports[1]
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_poll_port_status_gsm7252ps(self, mock_run):
+    def test_poll_port_status_gsm7252ps(self):
         """GSM7252PS (PoE) returns link/speed/vlan + PoE fields."""
-        fixtures = {
+        fixture_map = {
             "2.2.1.8": "snmpwalk_gsm7252ps_ifoperstatus.txt",
             "31.1.1.1.15": "snmpwalk_gsm7252ps_ifhighspeed.txt",
             "17.7.1.4.5.1.1": "snmpwalk_gsm7252ps_dot1qpvid.txt",
@@ -808,19 +803,12 @@ class TestSnmpCollector:
             "105.1.1.1.3.1": "snmpwalk_gsm7252ps_poe_admin.txt",
             "105.1.1.1.6.1": "snmpwalk_gsm7252ps_poe_detect.txt",
         }
-
-        def side_effect(*args, **kwargs):
-            cmd = args[0]
-            oid = cmd[-1]
-            for key, fname in fixtures.items():
-                if key in oid:
-                    text = (FIXTURES / fname).read_text()
-                    return MagicMock(returncode=0, stdout=text, stderr="")
-            return MagicMock(returncode=0, stdout="", stderr="")
-
-        mock_run.side_effect = side_effect
+        walk_rows = {
+            suffix: rows_from_snmpwalk_txt((FIXTURES / fname).read_text())
+            for suffix, fname in fixture_map.items()
+        }
         sw = _make_switch("test-gsm7252ps", "gsm7252ps")
-        collector = self.make_collector(switches=[sw])
+        collector = collector_with(sw, walk_rows=walk_rows)
         ports = collector.poll_port_status(sw)
 
         # GSM7252PS has 52 ports

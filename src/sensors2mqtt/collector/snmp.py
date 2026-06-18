@@ -1,7 +1,7 @@
 """SNMP collector: poll Netgear managed switches for sensor data.
 
 Runs on ten64 (the router). Polls multiple switches sequentially via
-subprocess snmpget/snmpwalk. Per-switch availability — one switch being
+SnmpClient (ezsnmp). Per-switch availability — one switch being
 down doesn't block others.
 
 Switch models (OID tables) are defined in code. Which switches to poll
@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 import re
-import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
@@ -45,6 +44,7 @@ from sensors2mqtt.discovery import (
     publish_state,
 )
 from sensors2mqtt.security import ensure_secure_file
+from sensors2mqtt.snmp_client import SnmpClient, SnmpError, SnmpRow
 
 # Legacy fixed bridge topic (pre multi-host). Cleared on startup; no longer used.
 _LEGACY_BRIDGE_TOPIC = "sensors2mqtt/snmp_bridge/status"
@@ -358,105 +358,31 @@ def parse_hex_mac(hex_str: str) -> str | None:
 BRIDGE_MAC_OID = "1.3.6.1.2.1.17.1.1.0"  # dot1dBaseBridgeAddress
 
 
-def fetch_bridge_mac(switch: SwitchConfig, timeout: int = 10) -> str | None:
-    """Fetch switch base MAC address via SNMP dot1dBaseBridgeAddress.
-
-    Returns lowercase colon-separated MAC (e.g. "e0:91:f5:0c:d5:c7"),
-    or None on failure.
-    """
-    try:
-        result = subprocess.run(
-            ["snmpget", "-v2c", "-c", switch.community, switch.host, BRIDGE_MAC_OID],
-            capture_output=True, text=True, timeout=timeout,
-        )
-        if result.returncode != 0:
-            log.warning("%s: bridge MAC fetch failed: %s", switch.name, result.stderr.strip())
-            return None
-        # Two possible formats:
-        # Hex-STRING: E0 91 F5 0C D5 C7  (GSM7252PS, S3300)
-        # STRING: "8C:3B:AD:6B:BB:E0"    (M4300)
-        m = re.search(r"Hex-STRING:\s*(.+)", result.stdout)
-        if m:
-            return parse_hex_mac(m.group(1))
-        m = re.search(r'STRING:\s*"?([0-9A-Fa-f:]+)"?', result.stdout)
-        if m:
-            return m.group(1).lower()
-        log.debug("%s: unrecognised bridge MAC format: %s",
-                  switch.name, result.stdout.strip())
-        return None
-    except subprocess.TimeoutExpired:
-        log.warning("%s: bridge MAC fetch timed out", switch.name)
-        return None
-    except Exception as e:
-        log.warning("%s: bridge MAC fetch error: %s", switch.name, e)
-        return None
-
-
-def parse_snmpget_value(output: str) -> str | None:
-    """Extract the value from a single snmpget output line.
-
-    Handles formats like:
-        iso.3.6.1... = INTEGER: 42
-        iso.3.6.1... = STRING: "5280"
-        iso.3.6.1... = Gauge32: 1234
-
-    Returns the raw value string, or None if not parseable.
-    """
-    m = re.search(r"=\s*\S+:\s*(.*)", output.strip())
-    if not m:
-        return None
-    val = m.group(1).strip().strip('"')
-    return val if val else None
-
-
-def parse_snmpwalk(output: str) -> list[tuple[int, str]]:
-    """Parse snmpwalk output into [(last_oid_index, value), ...].
-
-    Each line like:
-        iso.3.6.1...2.1.5 = Gauge32: 3300
-    yields (5, "3300").
-    """
+def parse_snmpwalk(rows: list[SnmpRow]) -> list[tuple[int, str]]:
+    """[(last_oid_component, value), ...] for rows whose final arc is numeric."""
     results = []
-    for line in output.strip().splitlines():
-        m = re.match(r".*\.(\d+)\s*=\s*\S+:\s*(.*)", line)
-        if m:
-            index = int(m.group(1))
-            val = m.group(2).strip().strip('"')
-            results.append((index, val))
+    for row in rows:
+        last = row.oid.rsplit(".", 1)[-1]
+        if last.isdigit():
+            results.append((int(last), row.value))
     return results
 
 
-def parse_box_walk(output: str, base_oid: str) -> list[tuple[str, str]]:
-    """Parse a boxServices value-column walk into [(instance, raw_value), ...].
+def parse_box_walk(rows: list[SnmpRow], base_oid: str) -> list[tuple[str, str]]:
+    """[(instance, value), ...] where instance is the OID suffix under base_oid.
 
-    The instance is the full OID suffix relative to base_oid — e.g. "1.0"
-    (unit 1, fan 0) on an M4300, or "0" on a GSM7252PS, whose fan table is
-    indexed by a single component. Unlike parse_snmpwalk(), the suffix is
-    kept whole: last-component parsing would collapse stacked-unit
-    instances (fans "1.0" and "2.0" both become 0) and discard the
-    structure used to order instances.
-
-    snmpwalk prints the leading OID arc as "iso" instead of "1", so the
-    OID is normalised before the prefix comparison. Lines outside
-    base_oid, with a non-numeric suffix, or without a "TYPE: value" form
-    (e.g. "No Such Object ...") are ignored.
+    Keeps the whole suffix (e.g. "1.0" vs "0") so stacked-unit instances stay
+    distinct, matching the previous behaviour.
     """
     prefix = base_oid + "."
     results = []
-    for line in output.strip().splitlines():
-        m = re.match(r"(\S+)\s*=\s*\S+:\s*(.*)", line.strip())
-        if not m:
+    for row in rows:
+        if not row.oid.startswith(prefix):
             continue
-        oid = m.group(1)
-        if oid.startswith("iso."):
-            oid = "1." + oid[len("iso."):]
-        if not oid.startswith(prefix):
-            continue
-        instance = oid[len(prefix):]
+        instance = row.oid[len(prefix):]
         if not re.fullmatch(r"\d+(\.\d+)*", instance):
             continue
-        val = m.group(2).strip().strip('"')
-        results.append((instance, val))
+        results.append((instance, row.value))
     return results
 
 
@@ -487,57 +413,33 @@ def box_entity(kind: str, ordinal: int) -> tuple[str, str]:
     return f"{kind}{ordinal + 1}", f"{label} {ordinal + 1}"
 
 
-def parse_lldp_walk(output: str, field_oid: str) -> dict[int, str]:
-    """Parse LLDP remote table walk output into {local_port: value}.
+def parse_lldp_walk(rows: list[SnmpRow], field_oid: str) -> dict[int, str]:
+    """{local_port: value} from an LLDP remote-table field walk.
 
-    LLDP uses a three-part index: {timeMark}.{localPortNum}.{remIndex}.
-    We extract localPortNum (the middle component) as the port key.
-
-    Args:
-        output: Raw snmpwalk output.
-        field_oid: The field number in the OID (e.g. "9" for sysName, "8" for portDesc).
+    Index is {timeMark}.{localPortNum}.{remIndex}; localPortNum is the middle.
     """
     results: dict[int, str] = {}
-    for line in output.strip().splitlines():
-        # Skip Hex-STRING lines (MAC addresses, not useful as text)
-        if "Hex-STRING:" in line:
-            continue
-        # OID suffix: ...{field_oid}.{timeMark}.{localPortNum}.{remIndex}
-        m = re.match(
-            rf".*\.{field_oid}\.(\d+)\.(\d+)\.(\d+)\s*=\s*\S+:\s*(.*)",
-            line,
-        )
+    pattern = re.compile(rf"\.{field_oid}\.(\d+)\.(\d+)\.(\d+)$")
+    for row in rows:
+        m = pattern.search("." + row.oid)
         if not m:
             continue
-        port = int(m.group(2))  # localPortNum is the middle component
-        val = m.group(4).strip().strip('"')
-        if val and port not in results:
-            results[port] = val
+        port = int(m.group(2))
+        if row.value and port not in results:
+            results[port] = row.value
     return results
 
 
-def parse_lldp_chassis_ids(output: str) -> dict[int, str]:
-    """Parse LLDP chassis ID walk into {local_port: mac_address}.
-
-    LLDP chassis IDs are Hex-STRING MACs with three-part OID index:
-        iso.0.8802.1.1.2.1.4.1.1.5.0.1.1 = Hex-STRING: E0 91 F5 0C D6 DB
-
-    Only returns entries that parse as exactly 6-byte MACs (filters out
-    non-MAC chassis ID subtypes like networkAddress or interfaceName).
-    """
+def parse_lldp_chassis_ids(rows: list[SnmpRow]) -> dict[int, str]:
+    """{local_port: mac} from lldpRemChassisId rows that are 6-byte MACs."""
     results: dict[int, str] = {}
-    for line in output.strip().splitlines():
-        if "Hex-STRING:" not in line:
-            continue
-        # OID suffix: ...5.{timeMark}.{localPortNum}.{remIndex} = Hex-STRING: ...
-        m = re.match(
-            r".*\.5\.(\d+)\.(\d+)\.(\d+)\s*=\s*Hex-STRING:\s*(.*)",
-            line,
-        )
+    pattern = re.compile(r"\.5\.(\d+)\.(\d+)\.(\d+)$")
+    for row in rows:
+        m = pattern.search("." + row.oid)
         if not m:
             continue
-        port = int(m.group(2))  # localPortNum is the middle component
-        mac = parse_hex_mac(m.group(4))
+        port = int(m.group(2))
+        mac = parse_hex_mac(row.value)
         if mac and port not in results:
             results[port] = mac
     return results
@@ -546,31 +448,42 @@ def parse_lldp_chassis_ids(output: str) -> dict[int, str]:
 LLDP_CHASSIS_OID = "1.0.8802.1.1.2.1.4.1.1.5"  # lldpRemChassisId
 
 
-def fetch_lldp_chassis_macs(switch: SwitchConfig, timeout: int = 30) -> dict[int, str]:
-    """Fetch LLDP neighbor chassis MACs per port.
+def format_mac(row: SnmpRow) -> str | None:
+    """Format an ezsnmp MAC OCTET STRING row as 'aa:bb:cc:dd:ee:ff', or None."""
+    v = row.value.strip()
+    if re.fullmatch(r"(?:[0-9A-Fa-f]{2}[:\- ]){5}[0-9A-Fa-f]{2}", v):
+        return v.replace("-", ":").replace(" ", ":").lower()
+    if len(v) == 6:  # raw bytes
+        return ":".join(f"{ord(c):02x}" for c in v)
+    return parse_hex_mac(v)  # space-separated hex fallback
 
-    Returns {port: "aa:bb:cc:dd:ee:ff"} for ports with LLDP neighbors
-    that report a MAC-type chassis ID.
-    """
+
+def fetch_bridge_mac(client: SnmpClient, name: str) -> str | None:
+    """Fetch switch base MAC via dot1dBaseBridgeAddress, or None."""
     try:
-        result = subprocess.run(
-            ["snmpwalk", "-v2c", "-c", switch.community, switch.host,
-             LLDP_CHASSIS_OID],
-            capture_output=True, text=True, timeout=timeout,
-        )
-        if result.returncode != 0:
-            log.warning("%s: LLDP chassis MAC walk failed: %s",
-                        switch.name, result.stderr.strip())
-            return {}
-        macs = parse_lldp_chassis_ids(result.stdout)
-        if macs:
-            log.info("%s: fetched %d LLDP chassis MACs", switch.name, len(macs))
-        return macs
-    except subprocess.TimeoutExpired:
-        log.warning("%s: LLDP chassis MAC walk timed out", switch.name)
-    except Exception as e:
-        log.warning("%s: LLDP chassis MAC walk error: %s", switch.name, e)
-    return {}
+        row = client.get(BRIDGE_MAC_OID)
+    except SnmpError as e:
+        log.warning("%s: bridge MAC fetch failed: %s", name, e)
+        return None
+    if row is None:
+        return None
+    mac = format_mac(row)
+    if mac is None:
+        log.debug("%s: unrecognised bridge MAC value %r", name, row.value)
+    return mac
+
+
+def fetch_lldp_chassis_macs(client: SnmpClient, name: str) -> dict[int, str]:
+    """Fetch LLDP neighbour chassis MACs per local port."""
+    try:
+        rows = client.walk(LLDP_CHASSIS_OID)
+    except SnmpError as e:
+        log.warning("%s: LLDP chassis MAC walk failed: %s", name, e)
+        return {}
+    macs = parse_lldp_chassis_ids(rows)
+    if macs:
+        log.info("%s: fetched %d LLDP chassis MACs", name, len(macs))
+    return macs
 
 
 def snmpget_value(raw: str, value_type: str, scale: float) -> float | None:
@@ -587,6 +500,11 @@ def snmpget_value(raw: str, value_type: str, scale: float) -> float | None:
         if not m:
             return None
         return float(m.group(1)) * scale
+
+
+def _default_client_factory(switch: SwitchConfig) -> SnmpClient:
+    return SnmpClient(switch.host, switch.community,
+                      write_community=switch.write_community)
 
 
 # ---------------------------------------------------------------------------
@@ -609,10 +527,12 @@ class SnmpCollector:
         self,
         config: MqttConfig | None = None,
         switches: list[SwitchConfig] | None = None,
+        client_factory=None,
     ):
         self.config = config or MqttConfig.from_env()
         self.switches = switches if switches is not None else load_config()
-        self._timeout = 10
+        self._client_factory = client_factory or _default_client_factory
+        self._clients: dict[str, SnmpClient] = {}
         # Cache of port descriptions fetched via SNMP ifAlias: {node_id: {port: description}}
         self._port_descriptions: dict[str, dict[int, str]] = {}
         # Cache of VLAN names: {node_id: {vlan_id: name}}
@@ -626,51 +546,37 @@ class SnmpCollector:
         # Cache expiry times: {"node_id:type": monotonic_expires_at}
         self._cache_times: dict[str, float] = {}
 
+    def _client(self, switch: SwitchConfig) -> SnmpClient:
+        c = self._clients.get(switch.node_id)
+        if c is None:
+            c = self._client_factory(switch)
+            self._clients[switch.node_id] = c
+        return c
+
     def poll_switch(self, switch: SwitchConfig) -> dict | None:
         """Poll all sensors on a single switch. Returns {suffix: value} or None."""
         values = {}
+        client = self._client(switch)
 
         # snmpget-based sensors
         for sensor in switch.sensors:
             try:
-                result = subprocess.run(
-                    ["snmpget", "-v2c", "-c", switch.community, switch.host, sensor.oid],
-                    capture_output=True, text=True, timeout=self._timeout,
-                )
-                if result.returncode != 0:
-                    log.warning(
-                        "%s: snmpget %s failed: %s",
-                        switch.name, sensor.suffix, result.stderr.strip(),
-                    )
-                    continue
-                raw = parse_snmpget_value(result.stdout)
+                row = client.get(sensor.oid)
+                raw = row.value if row else None
                 val = snmpget_value(raw, sensor.value_type, sensor.scale)
                 if val is not None:
                     values[sensor.suffix] = val
-            except subprocess.TimeoutExpired:
-                log.warning("%s: snmpget %s timed out", switch.name, sensor.suffix)
-            except Exception as e:
-                log.warning("%s: snmpget %s error: %s", switch.name, sensor.suffix, e)
+            except SnmpError as e:
+                log.warning("%s: snmpget %s failed: %s", switch.name, sensor.suffix, e)
 
         # Walk-discovered boxServices sensors (fans, temperature, PSU).
         # Instances vary by model (see BoxWalkDef), so each value column is
         # walked and whatever rows exist become sensors, in instance order.
         for box in switch.box_walks:
             try:
-                result = subprocess.run(
-                    ["snmpwalk", "-v2c", "-c", switch.community, switch.host,
-                     box.base_oid],
-                    capture_output=True, text=True, timeout=self._timeout * 3,
-                )
-                if result.returncode != 0:
-                    log.warning(
-                        "%s: snmpwalk %s (%s) failed: %s",
-                        switch.name, box.base_oid, box.kind,
-                        result.stderr.strip(),
-                    )
-                    continue
+                rows = client.walk(box.base_oid)
                 readings = []
-                for instance, raw in parse_box_walk(result.stdout, box.base_oid):
+                for instance, raw in parse_box_walk(rows, box.base_oid):
                     if raw == "Not Supported":
                         # Netgear's literal placeholder for an absent sensor
                         # slot (e.g. the GSM7252PS middle fan) — not an error.
@@ -690,27 +596,15 @@ class SnmpCollector:
                 for ordinal, (_instance, value) in enumerate(readings):
                     suffix, _name = box_entity(box.kind, ordinal)
                     values[suffix] = value
-            except subprocess.TimeoutExpired:
-                log.warning("%s: snmpwalk %s timed out",
-                            switch.name, box.base_oid)
-            except Exception as e:
-                log.warning("%s: snmpwalk %s error: %s",
-                            switch.name, box.base_oid, e)
+            except SnmpError as e:
+                log.warning("%s: snmpwalk %s (%s) failed: %s",
+                            switch.name, box.base_oid, box.kind, e)
 
         # snmpwalk-based sensors
         for walk_def in switch.walk_sensors:
             try:
-                result = subprocess.run(
-                    ["snmpwalk", "-v2c", "-c", switch.community, switch.host, walk_def.base_oid],
-                    capture_output=True, text=True, timeout=self._timeout * 3,
-                )
-                if result.returncode != 0:
-                    log.warning(
-                        "%s: snmpwalk %s failed: %s",
-                        switch.name, walk_def.base_oid, result.stderr.strip(),
-                    )
-                    continue
-                for index, raw in parse_snmpwalk(result.stdout):
+                rows = client.walk(walk_def.base_oid)
+                for index, raw in parse_snmpwalk(rows):
                     if index < walk_def.min_index or index > walk_def.max_index:
                         continue
                     m = re.match(r"([\d.]+)", raw)
@@ -720,33 +614,24 @@ class SnmpCollector:
                     formatted = walk_def.format_index(index)
                     suffix = walk_def.suffix_template.format(index=formatted)
                     values[suffix] = val
-            except subprocess.TimeoutExpired:
-                log.warning("%s: snmpwalk %s timed out", switch.name, walk_def.base_oid)
-            except Exception as e:
-                log.warning("%s: snmpwalk %s error: %s", switch.name, walk_def.base_oid, e)
+            except SnmpError as e:
+                log.warning("%s: snmpwalk %s failed: %s", switch.name, walk_def.base_oid, e)
 
         return values if values else None
 
     def _walk_int_table(self, switch: SwitchConfig, oid: str) -> dict[int, int]:
         """Walk an SNMP integer table, returning {index: value} for physical ports."""
         try:
-            result = subprocess.run(
-                ["snmpwalk", "-v2c", "-c", switch.community, switch.host, oid],
-                capture_output=True, text=True, timeout=self._timeout * 3,
-            )
-            if result.returncode != 0:
-                log.warning("%s: walk %s failed: %s", switch.name, oid, result.stderr.strip())
-                return {}
+            rows = self._client(switch).walk(oid)
             out = {}
-            for index, val in parse_snmpwalk(result.stdout):
+            for index, val in parse_snmpwalk(rows):
                 if 1 <= index <= switch.port_count:
                     try:
                         out[index] = int(val)
                     except ValueError:
                         pass
             return out
-        except subprocess.TimeoutExpired:
-            log.warning("%s: walk %s timed out", switch.name, oid)
+        except SnmpError:
             return {}
 
     def poll_port_status(self, switch: SwitchConfig) -> dict[int, dict]:
@@ -824,26 +709,15 @@ class SnmpCollector:
         success = False
 
         try:
-            result = subprocess.run(
-                ["snmpwalk", "-v2c", "-c", switch.community, switch.host, IF_ALIAS_OID],
-                capture_output=True, text=True, timeout=self._timeout * 3,
-            )
-            if result.returncode != 0:
-                log.warning("%s: ifAlias walk failed: %s", switch.name, result.stderr.strip())
-            else:
-                success = True
-                for line in result.stdout.strip().splitlines():
-                    m = re.match(r'.*\.(\d+)\s*=\s*STRING:\s*"(.+)"', line)
-                    if not m:
-                        continue
-                    port = int(m.group(1))
-                    alias = m.group(2).strip()
-                    if not alias:
-                        continue
-                    descriptions[port] = alias
-        except subprocess.TimeoutExpired:
-            log.warning("%s: ifAlias walk timed out", switch.name)
-        except Exception as e:
+            rows = self._client(switch).walk(IF_ALIAS_OID)
+            success = True
+            for row in rows:
+                port = int(row.oid.rsplit(".", 1)[-1])
+                alias = row.value.strip()
+                if not alias:
+                    continue
+                descriptions[port] = alias
+        except SnmpError as e:
             log.warning("%s: ifAlias walk error: %s", switch.name, e)
 
         if success:
@@ -871,22 +745,12 @@ class SnmpCollector:
         success = False
 
         try:
-            result = subprocess.run(
-                ["snmpwalk", "-v2c", "-c", switch.community, switch.host, VLAN_NAME_OID],
-                capture_output=True, text=True, timeout=self._timeout * 3,
-            )
-            if result.returncode != 0:
-                log.warning(
-                    "%s: VLAN name walk failed: %s", switch.name, result.stderr.strip(),
-                )
-            else:
-                success = True
-                for index, val in parse_snmpwalk(result.stdout):
-                    if val:
-                        names[index] = val
-        except subprocess.TimeoutExpired:
-            log.warning("%s: VLAN name walk timed out", switch.name)
-        except Exception as e:
+            rows = self._client(switch).walk(VLAN_NAME_OID)
+            success = True
+            for index, val in parse_snmpwalk(rows):
+                if val:
+                    names[index] = val
+        except SnmpError as e:
             log.warning("%s: VLAN name walk error: %s", switch.name, e)
 
         if success:
@@ -920,25 +784,9 @@ class SnmpCollector:
 
         for field_oid, target in [("9", sys_names), ("8", port_descs)]:
             try:
-                result = subprocess.run(
-                    [
-                        "snmpwalk", "-v2c", "-c", switch.community,
-                        switch.host, f"{LLDP_REM}.{field_oid}",
-                    ],
-                    capture_output=True, text=True, timeout=self._timeout * 3,
-                )
-                if result.returncode != 0:
-                    log.warning(
-                        "%s: LLDP .%s walk failed: %s",
-                        switch.name, field_oid, result.stderr.strip(),
-                    )
-                    success = False
-                else:
-                    target.update(parse_lldp_walk(result.stdout, field_oid))
-            except subprocess.TimeoutExpired:
-                log.warning("%s: LLDP .%s walk timed out", switch.name, field_oid)
-                success = False
-            except Exception as e:
+                rows = self._client(switch).walk(f"{LLDP_REM}.{field_oid}")
+                target.update(parse_lldp_walk(rows, field_oid))
+            except SnmpError as e:
                 log.warning("%s: LLDP .%s walk error: %s", switch.name, field_oid, e)
                 success = False
 
@@ -1033,7 +881,7 @@ class SnmpCollector:
     def get_device_info(self, switch: SwitchConfig) -> DeviceInfo:
         # Lazy-fetch and cache switch management MAC
         if switch.node_id not in self._switch_macs:
-            mac = fetch_bridge_mac(switch, timeout=self._timeout)
+            mac = fetch_bridge_mac(self._client(switch), switch.name)
             if mac:
                 self._switch_macs[switch.node_id] = mac
                 log.info("%s: bridge MAC %s", switch.name, mac)
@@ -1252,7 +1100,9 @@ def main():
                 # Per-port discovery (once per startup; each port is a sub-device)
                 if switch.node_id not in discovery_published:
                     if switch.port_count > 0:
-                        chassis_macs = fetch_lldp_chassis_macs(switch)
+                        chassis_macs = fetch_lldp_chassis_macs(
+                            collector._client(switch), switch.name
+                        )
                         port_count = _publish_port_discovery(
                             client, switch, avail,
                             chassis_macs=chassis_macs,
