@@ -36,4 +36,4 @@ jobs:
       - name: Trust repo directory
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Run integration tests (real ezsnmp + snmpsim)
-        run: PYTHONPATH=src python3 -m pytest tests/ -m integration -v
+        run: PYTHONPATH=src python3 -m pytest tests/integration -m integration -v
