@@ -17,7 +17,6 @@ import json
 import logging
 import re
 import signal
-import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -37,9 +36,10 @@ from sensors2mqtt.base import (
 from sensors2mqtt.collector.snmp import (
     SwitchConfig,
     _build_port_device,
+    _default_client_factory,
     fetch_lldp_chassis_macs,
     load_config,
-    parse_snmpget_value,
+    parse_snmpwalk,
 )
 from sensors2mqtt.discovery import (
     ORIGIN,
@@ -47,6 +47,7 @@ from sensors2mqtt.discovery import (
     device_dict,
     publish_connection_diagnostic,
 )
+from sensors2mqtt.snmp_client import SnmpClient, SnmpError
 
 # Legacy fixed bridge topic (pre multi-host). Cleared on startup; no longer used.
 _LEGACY_BRIDGE_TOPIC = "sensors2mqtt/snmp_control_bridge/status"
@@ -108,6 +109,7 @@ class PoeController:
         mqtt_config: MqttConfig,
         switches: list[SwitchConfig],
         poll_interval: int = 30,
+        client_factory=None,
     ):
         self.mqtt_config = mqtt_config
         # Only keep switches with write_community and PoE ports
@@ -117,6 +119,9 @@ class PoeController:
         ]
         self.poll_interval = poll_interval
         self._snmp_timeout = 10
+
+        self._client_factory = client_factory or _default_client_factory
+        self._clients: dict[str, SnmpClient] = {}
 
         # {node_id: {port: PortControlState}}
         self._port_states: dict[str, dict[int, PortControlState]] = {}
@@ -131,53 +136,44 @@ class PoeController:
             s.node_id: s for s in self.switches
         }
 
-        self._client: mqtt.Client | None = None
+        self._mqtt_client: mqtt.Client | None = None
         self._stop_event = threading.Event()
         self._connected = threading.Event()
         self._once = False
         self._executor = ThreadPoolExecutor(max_workers=4)
 
+    def _client(self, switch: SwitchConfig) -> SnmpClient:
+        """Return a cached SnmpClient for the given switch."""
+        c = self._clients.get(switch.node_id)
+        if c is None:
+            c = self._client_factory(switch)
+            self._clients[switch.node_id] = c
+        return c
+
     def _snmpget_int(self, switch: SwitchConfig, oid: str, port: int) -> int | None:
         """SNMP GET a single integer value for a port."""
         full_oid = f"{oid}.{port}"
         try:
-            result = subprocess.run(
-                ["snmpget", "-v2c", "-c", switch.community, switch.host, full_oid],
-                capture_output=True, text=True, timeout=self._snmp_timeout,
-            )
-            if result.returncode != 0:
-                log.warning("%s: snmpget %s failed: %s",
-                            switch.name, full_oid, result.stderr.strip())
-                return None
-            raw = parse_snmpget_value(result.stdout)
-            if raw is None:
-                return None
-            m = re.match(r"(\d+)", raw)
-            return int(m.group(1)) if m else None
-        except subprocess.TimeoutExpired:
-            log.warning("%s: snmpget %s timed out", switch.name, full_oid)
+            row = self._client(switch).get(full_oid)
+        except SnmpError as e:
+            log.warning("%s: get %s failed: %s", switch.name, full_oid, e)
             return None
+        if row is None:
+            return None
+        m = re.match(r"(\d+)", row.value)
+        return int(m.group(1)) if m else None
 
     def _snmpset_int(self, switch: SwitchConfig, oid: str, port: int, value: int) -> bool:
         """SNMP SET an integer value for a port. Returns True on success."""
         full_oid = f"{oid}.{port}"
         try:
-            result = subprocess.run(
-                [
-                    "snmpset", "-v2c", "-c", switch.write_community,
-                    switch.host, full_oid, "i", str(value),
-                ],
-                capture_output=True, text=True, timeout=self._snmp_timeout,
-            )
-            if result.returncode != 0:
-                log.error("%s: snmpset %s=%d failed: %s",
-                          switch.name, full_oid, value, result.stderr.strip())
-                return False
-            log.info("%s: snmpset %s=%d ok", switch.name, full_oid, value)
-            return True
-        except subprocess.TimeoutExpired:
-            log.error("%s: snmpset %s timed out", switch.name, full_oid)
+            ok = self._client(switch).set_int(full_oid, value)
+        except SnmpError as e:
+            log.error("%s: set %s=%d failed: %s", switch.name, full_oid, value, e)
             return False
+        if ok:
+            log.info("%s: set %s=%d ok", switch.name, full_oid, value)
+        return ok
 
     def poll_port_state(self, switch: SwitchConfig, port: int) -> PortControlState | None:
         """Poll current state of a single port."""
@@ -194,50 +190,42 @@ class PoeController:
 
     def poll_all_ports(self, switch: SwitchConfig) -> None:
         """Poll all PoE port states on a switch via walk."""
-        from sensors2mqtt.collector.snmp import parse_snmpwalk
         for oid, attr in [
             (POE_ADMIN_OID, "poe_admin"),
             (POE_DETECT_OID, "poe_detect"),
             (IF_OPER_OID, "link"),
         ]:
             try:
-                result = subprocess.run(
-                    ["snmpwalk", "-v2c", "-c", switch.community, switch.host, oid],
-                    capture_output=True, text=True, timeout=self._snmp_timeout * 3,
-                )
-                if result.returncode != 0:
-                    log.warning("%s: walk %s failed: %s",
-                                switch.name, oid, result.stderr.strip())
-                    continue
-                for index, val in parse_snmpwalk(result.stdout):
+                rows = self._client(switch).walk(oid)
+                for index, val in parse_snmpwalk(rows):
                     if 1 <= index <= switch.poe_port_count:
                         try:
                             setattr(self._port_states[switch.node_id][index], attr, int(val))
                         except (ValueError, KeyError):
                             pass
-            except subprocess.TimeoutExpired:
-                log.warning("%s: walk %s timed out", switch.name, oid)
+            except SnmpError:
+                log.warning("%s: walk %s failed", switch.name, oid)
 
     def publish_availability(self, switch: SwitchConfig) -> None:
         """Publish per-port PoE control availability."""
-        if not self._client:
+        if not self._mqtt_client:
             return
         for port in range(1, switch.poe_port_count + 1):
             nn = str(port).zfill(2)
             state = self._port_states[switch.node_id][port]
             avail = "online" if state.is_available else "offline"
             topic = f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/available"
-            self._client.publish(topic, avail, retain=True)
+            self._mqtt_client.publish(topic, avail, retain=True)
 
     def publish_poe_state(self, switch: SwitchConfig, port: int) -> None:
         """Publish PoE ON/OFF state for a single port."""
-        if not self._client:
+        if not self._mqtt_client:
             return
         nn = str(port).zfill(2)
         state = self._port_states[switch.node_id][port]
         payload = "ON" if state.poe_is_on else "OFF"
         topic = f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/state"
-        self._client.publish(topic, payload, retain=True)
+        self._mqtt_client.publish(topic, payload, retain=True)
 
     def publish_all_poe_states(self, switch: SwitchConfig) -> None:
         """Publish PoE state for all ports on a switch."""
@@ -389,9 +377,9 @@ class PoeController:
         nn = str(port).zfill(2)
         log.info("%s: port %d force override → %s", switch.name, port, payload)
 
-        if self._client:
+        if self._mqtt_client:
             # Publish force state (retained — survives restart)
-            self._client.publish(
+            self._mqtt_client.publish(
                 f"sensors2mqtt/{switch.node_id}/port/{nn}/poe/force/state",
                 payload, retain=True,
             )
@@ -440,7 +428,7 @@ class PoeController:
         Each port gets a per-port sub-device (via_device → parent switch),
         matching the sensor collector's per-port device scheme.
         """
-        if not self._client:
+        if not self._mqtt_client:
             return 0
 
         avail_topic = f"sensors2mqtt/{switch.node_id}/status"
@@ -470,7 +458,7 @@ class PoeController:
                 "origin": ORIGIN,
                 "icon": "mdi:lightning-bolt",
             }
-            self._client.publish(
+            self._mqtt_client.publish(
                 f"homeassistant/switch/{switch.node_id}/port{nn}_poe_toggle/config",
                 json.dumps(toggle_config), retain=True,
             )
@@ -487,7 +475,7 @@ class PoeController:
                 "origin": ORIGIN,
                 "icon": "mdi:restart",
             }
-            self._client.publish(
+            self._mqtt_client.publish(
                 f"homeassistant/button/{switch.node_id}/port{nn}_poe_cycle/config",
                 json.dumps(cycle_config), retain=True,
             )
@@ -509,7 +497,7 @@ class PoeController:
                 "origin": ORIGIN,
                 "icon": "mdi:shield-key",
             }
-            self._client.publish(
+            self._mqtt_client.publish(
                 f"homeassistant/switch/{switch.node_id}/port{nn}_poe_force/config",
                 json.dumps(force_config), retain=True,
             )
@@ -523,7 +511,7 @@ class PoeController:
         Subscribes to force/state topics, waits briefly, then unsubscribes.
         This ensures force_override flags survive restart.
         """
-        if not self._client:
+        if not self._mqtt_client:
             return
 
         def on_force_msg(client, userdata, message):
@@ -543,14 +531,14 @@ class PoeController:
                              switch.name, port)
 
         topic = f"sensors2mqtt/{switch.node_id}/port/+/poe/force/state"
-        self._client.message_callback_add(topic, on_force_msg)
-        self._client.subscribe(topic)
+        self._mqtt_client.message_callback_add(topic, on_force_msg)
+        self._mqtt_client.subscribe(topic)
 
         # Wait briefly for retained messages to arrive
         time.sleep(1)
 
-        self._client.unsubscribe(topic)
-        self._client.message_callback_remove(topic)
+        self._mqtt_client.unsubscribe(topic)
+        self._mqtt_client.message_callback_remove(topic)
 
     def _subscribe_commands(self, client: mqtt.Client) -> None:
         """(Re)subscribe to every switch's PoE command topics.
@@ -594,7 +582,7 @@ class PoeController:
             will_topic=conn_topic,
         )
         client.on_message = self._on_message
-        self._client = client
+        self._mqtt_client = client
 
         log.info("Connecting to MQTT %s:%d",
                  self.mqtt_config.host, self.mqtt_config.port)
@@ -617,7 +605,7 @@ class PoeController:
             # Fetch LLDP chassis MACs for per-port device connections
             port_chassis_macs: dict[str, dict[int, str]] = {}
             for sw in self.switches:
-                port_chassis_macs[sw.node_id] = fetch_lldp_chassis_macs(sw)
+                port_chassis_macs[sw.node_id] = fetch_lldp_chassis_macs(self._client(sw), sw.name)
 
             # Initial poll + discovery + state publish
             for sw in self.switches:
@@ -653,7 +641,7 @@ class PoeController:
             self._executor.shutdown(wait=False)
             client.disconnect()
             client.loop_stop()
-            self._client = None
+            self._mqtt_client = None
             log.info("Disconnected from MQTT")
 
 
