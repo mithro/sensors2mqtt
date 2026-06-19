@@ -3,6 +3,7 @@
 Skips the whole integration package when ezsnmp or snmpsim are unavailable
 (e.g. a dev box without libsnmp-dev). CI installs both, so they always run there.
 """
+import os
 import shutil
 import socket
 import subprocess
@@ -31,13 +32,20 @@ def snmpsim_agent():
     if shutil.which(_RESPONDER) is None:
         pytest.skip("snmpsim-command-responder not on PATH")
     host, port = "127.0.0.1", _free_udp_port()
+    cmd = [
+        _RESPONDER,
+        f"--data-dir={SNMPREC_DIR}",
+        f"--agent-udpv4-endpoint={host}:{port}",
+        "--logging-method=null",
+    ]
+    # snmpsim's PrivilegesOf refuses to run as root unless given a non-privileged
+    # user/group to drop to (it raises "Must drop privileges ..."). CI runs this
+    # job in a root container, so supply one; this is a no-op for the normal
+    # non-root dev run, so only add it when actually running as root.
+    if os.geteuid() == 0:
+        cmd += ["--process-user", "nobody", "--process-group", "nogroup"]
     proc = subprocess.Popen(
-        [
-            _RESPONDER,
-            f"--data-dir={SNMPREC_DIR}",
-            f"--agent-udpv4-endpoint={host}:{port}",
-            "--logging-method=null",
-        ],
+        cmd,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     # Poll until the UDP responder answers (a GET of sysObjectID succeeds).
@@ -47,7 +55,7 @@ def snmpsim_agent():
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             out, err = proc.communicate()
-            raise RuntimeError(f"snmpsim exited early: {err.decode()[:500]}")
+            raise RuntimeError(f"snmpsim exited early: {err.decode()[:2000]}")
         try:
             ezsnmp.Session(
                 hostname=host, remote_port=port, community="m4300", version=2,
