@@ -147,6 +147,33 @@ class TestDedup:
         assert discover_hwmon_sensors(str(tmp_path), {"nvme0_composite"}) == []
 
 
+class TestInstanceChannels:
+    def test_same_driver_two_instances_distinct_names(self, tmp_path, monkeypatch):
+        from sensors2mqtt.collector.local import hwmon
+
+        monkeypatch.setitem(hwmon.PERIPHERAL_HWMON, "fakemon", hwmon.DriverSpec(
+            instance_channels={
+                "0_0011": {"in0": hwmon.ChannelSpec(suffix="rail_a", name="Rail A")},
+                "0_0022": {"in0": hwmon.ChannelSpec(suffix="rail_b", name="Rail B")},
+            },
+        ))
+        mk_hwmon(tmp_path, 0, "fakemon", {"in0_input": "1000"}, device="0-0011")
+        mk_hwmon(tmp_path, 1, "fakemon", {"in0_input": "2000"}, device="0-0022")
+        out = suffixes(hwmon.discover_hwmon_sensors(str(tmp_path), set()))
+        assert {"rail_a", "rail_b"} <= out
+
+    def test_instance_channels_fall_through_to_channels(self, tmp_path, monkeypatch):
+        from sensors2mqtt.collector.local import hwmon
+
+        monkeypatch.setitem(hwmon.PERIPHERAL_HWMON, "fakemon2", hwmon.DriverSpec(
+            channels={"temp1": hwmon.ChannelSpec(suffix="generic_temp")},
+            instance_channels={"0_0099": {"temp1": hwmon.ChannelSpec(suffix="special_temp")}},
+        ))
+        mk_hwmon(tmp_path, 0, "fakemon2", {"temp1_input": "40000"}, device="0-0050")
+        out = suffixes(hwmon.discover_hwmon_sensors(str(tmp_path), set()))
+        assert "generic_temp" in out  # no instance match -> falls through to channels
+
+
 class TestFindHwmon:
     def test_find_by_name(self, tmp_path):
         mk_hwmon(tmp_path, 0, "nvme", {"temp1_input": "1"}, device="nvme0")
