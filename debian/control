@@ -73,6 +73,21 @@ Description: sensors2mqtt PoE control service for Netgear managed switches
  Configure switches in /etc/sensors2mqtt/snmp.toml and the MQTT connection in
  /etc/sensors2mqtt/env, then start the service.
 
+Package: sensors2mqtt-local-control
+Architecture: all
+Depends: python3-sensors2mqtt (= ${binary:Version}),
+         python3,
+         systemd,
+         ${misc:Depends}
+Description: sensors2mqtt host power-control service
+ Installs the sensors2mqtt-local-control systemd service, which exposes
+ graceful Shutdown and Reboot buttons for the local host to Home Assistant via
+ MQTT auto-discovery. The service runs as root and calls /sbin/shutdown
+ directly — no SSH or external agent.
+ .
+ Install only on hosts that should be remotely power-controllable. Configure the
+ MQTT connection in /etc/sensors2mqtt/env, then start the service.
+
 Package: sensors2mqtt-ipmi-sensors
 Architecture: all
 Depends: python3-sensors2mqtt (= ${binary:Version}),

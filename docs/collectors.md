@@ -72,6 +72,45 @@ file and the `chmod 0600` fix).
 | GSM7252PS | Per-port PoE power (mW) |
 | S3300-52X-PoE+ | Fans, temperature, PSU, per-port PoE power |
 
+## Host power-control service
+
+The control counterpart to the local collector. Runs **as root** on the host it
+controls and exposes two Home Assistant `button` entities — **Shutdown** and
+**Reboot** — under that host's existing sensors2mqtt device. On the exact button
+payload `PRESS` it calls `/sbin/shutdown` (`-h now` / `-r now`). It is not a
+`BasePublisher` collector; it subscribes to commands rather than polling.
+
+**Debian package:** `sensors2mqtt-local-control` installs the systemd service
+enabled but **not started** — install it only on hosts you intend to
+power-control over MQTT, then start it deliberately. Reuses the same
+`/etc/sensors2mqtt/env` as `sensors2mqtt-local`.
+
+```bash
+sudo apt install sensors2mqtt-local-control
+sudo editor /etc/sensors2mqtt/env            # MQTT creds (shared with sensors2mqtt-local)
+sudo systemctl start sensors2mqtt-local-control
+```
+
+**Development / manual run:**
+```bash
+uv run python -m sensors2mqtt.collector.local_control
+uv run python -m sensors2mqtt.collector.local_control --once   # publish discovery + idle, exit
+```
+
+Topics (per host `node_id`):
+
+| Topic | Dir | Payload |
+|-------|-----|---------|
+| `sensors2mqtt/{node_id}/power/shutdown/set` | in | `PRESS` → `shutdown -h now` |
+| `sensors2mqtt/{node_id}/power/reboot/set` | in | `PRESS` → `shutdown -r now` |
+| `sensors2mqtt/{node_id}/power/state` | out | `idle` / `shutting_down` / `rebooting` |
+
+> **Safety:** the daemon only *triggers* a clean halt — it can never report "I am
+> off". A consumer that cuts mains power (e.g. an HA automation toggling a smart
+> plug) MUST confirm the host is off independently (a ping/availability drop)
+> before cutting; the `power/state` ack is not a power-state confirmation. A
+> failed command (e.g. not root) resets `power/state` to `idle`.
+
 ## IPMI sensor collector
 
 Reads sensor data from a remote BMC via `ipmitool` and per-PSU PMBus data

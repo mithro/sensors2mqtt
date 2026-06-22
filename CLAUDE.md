@@ -18,6 +18,21 @@ BasePublisher (base.py)          — MQTT connection, poll loop, signals, discov
 
 `python -m sensors2mqtt.collector.local` auto-detects hardware and runs the right collector.
 
+### Control services (command receivers, not BasePublisher subclasses)
+
+Standalone daemons that *subscribe* to MQTT command topics and act, each the
+control counterpart to a collector:
+
+```
+PoeController   (collector/snmp_control.py)   — toggle/cycle PoE ports via SNMP SET (counterpart to snmp)
+PowerController (collector/local_control.py)  — graceful host shutdown/reboot via /sbin/shutdown (counterpart to local)
+```
+
+`local_control` runs **as root** on the host it controls, exposes HA Shutdown/Reboot
+buttons under that host's device, subscribes `sensors2mqtt/{node_id}/power/{shutdown,reboot}/set`
+(acts only on payload `PRESS`), and publishes a `power/state` ack. It only *triggers*
+a clean halt — a consumer that cuts mains power must confirm "off" independently.
+
 ## MQTT Topic Convention
 
 All publishers use the same topic structure:

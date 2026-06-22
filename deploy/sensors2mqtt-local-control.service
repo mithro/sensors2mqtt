@@ -1,0 +1,15 @@
+[Unit]
+Description=sensors2mqtt host power-control service (%H)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Runs as root (no User=) so it can call /sbin/shutdown directly.
+ExecStart=/usr/bin/python3 -m sensors2mqtt.collector.local_control
+Restart=always
+RestartSec=10
+EnvironmentFile=-/etc/sensors2mqtt/env
+
+[Install]
+WantedBy=multi-user.target
