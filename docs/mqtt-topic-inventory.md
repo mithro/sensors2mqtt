@@ -5,7 +5,8 @@ subscribe to, the substitutions used in those topic templates, and what the
 payloads look like.
 
 Reflects the multi-host scheme on branch `multi-host-mqtt-safety`:
-`base.py`, `discovery.py`, and `collector/{snmp,snmp_control,ipmi_sensors}.py`
+`base.py`, `discovery.py`, and
+`collector/{snmp,snmp_control,local_control,ipmi_sensors}.py`
 plus `collector/local/{base,rpi,mellanox}.py`.
 
 > **Two facts that apply to every row below**, so they are not repeated:
@@ -107,7 +108,8 @@ at startup**, and the readings flow continuously on the `state_topic`.
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | `{component}` | HA entity domain segment in the discovery path.                                                                                          | Chosen per entity type. One of `sensor`, `binary_sensor`, `switch`, `button`.                                                                              | `sensor`                                            |
 | `{host}`      | The host's node_id — short hostname, `-`→`_`. Used for host-local device topics and as the `{host}` in client-ids and connection topics. | `host_id()` = `socket.gethostname().split(".")[0].replace("-","_")` (`base.py`).                                                                           | `big_storage`, `ten64`, `rpi_sdr_kraken`            |
-| `{module}`    | Collector module token (= Python module basename, underscores).                                                                          | Per collector: `local`, `snmp`, `snmp_control`, `ipmi_sensors`.                                                                                            | `ipmi_sensors`                                      |
+| `{module}`    | Collector module token (= Python module basename, underscores).                                                                          | Per collector: `local`, `snmp`, `snmp_control`, `local_control`, `ipmi_sensors`.                                                                          | `ipmi_sensors`                                      |
+| `{action}`    | Power-control action (local_control buttons).                                                                                            | `local_control.py` `ACTIONS`: `shutdown`, `reboot`.                                                                                                        | `shutdown`                                          |
 | `{sw}`        | A switch's node_id — a *shared* device key (not host-scoped).                                                                            | snmp.toml `[switches.<key>]` name with `-`→`_` (`snmp.py`).                                                                                                | key `sw-netgear-m4300-24x` → `sw_netgear_m4300_24x` |
 | `{NN}`        | Physical port number, **zero-padded to 2 digits** (`str(port).zfill(2)`), range `1..port_count`.                                         | `snmp.py` / `snmp_control.py`.                                                                                                                             | `01`, `24`, `48`                                    |
 | `{slot}`      | PSU slot number, 1-based integer (not padded).                                                                                           | `ipmi_sensors.py` PSU enumeration.                                                                                                                         | `1`, `2`                                            |
@@ -154,6 +156,7 @@ All Pub · retained · QoS 0. These carry the JSON discovery payloads described 
 | snmp-ctl (toggle) | `homeassistant/switch/{sw}/port{NN}_poe_toggle/config`          | `homeassistant/switch/sw_netgear_gsm7252ps/port24_poe_toggle/config` | switch                   |
 | snmp-ctl (cycle)  | `homeassistant/button/{sw}/port{NN}_poe_cycle/config`           | `homeassistant/button/sw_netgear_gsm7252ps/port24_poe_cycle/config`  | button                   |
 | snmp-ctl (force)  | `homeassistant/switch/{sw}/port{NN}_poe_force/config`           | `homeassistant/switch/sw_netgear_gsm7252ps/port24_poe_force/config`  | switch (config category) |
+| local-ctl (power) | `homeassistant/button/{host}/power_{action}/config`             | `homeassistant/button/rpiz_dash_1/power_shutdown/config`             | button (config category) |
 
 ---
 
@@ -175,6 +178,8 @@ All Pub · retained · QoS 0.
 | snmp-ctl     | `sensors2mqtt/{sw}/port/{NN}/poe/force/state`      | `sensors2mqtt/sw_netgear_gsm7252ps/port/24/poe/force/state` | `ON` / `OFF` (force-override, read back on startup)                                                                            |
 | snmp-ctl     | `sensors2mqtt/{sw}/status`                         | `sensors2mqtt/sw_netgear_gsm7252ps/status`                  | `online` / `offline` — **shared** per-switch status (also written by the snmp collector)                                       |
 | snmp-ctl     | `sensors2mqtt/{host}/snmp_control/status`          | `sensors2mqtt/ten64/snmp_control/status`                    | `online` / `offline` — the snmp_control daemon's connection: Last-Will + per-cycle heartbeat                                   |
+| local-ctl    | `sensors2mqtt/{host}/power/state`                  | `sensors2mqtt/rpiz_dash_1/power/state`                      | `idle` / `shutting_down` / `rebooting` — command ack (NOT a power-state confirmation; reset to `idle` on a failed command)     |
+| local-ctl    | `sensors2mqtt/{host}/local_control/status`         | `sensors2mqtt/rpiz_dash_1/local_control/status`             | `online` / `offline` — the local_control daemon's connection: Last-Will + per-cycle heartbeat                                  |
 
 ---
 
@@ -189,6 +194,8 @@ Sub (inbound from Home Assistant) · QoS 0. `+` is the MQTT single-level wildcar
 | snmp-ctl                      | `sensors2mqtt/{sw}/port/+/poe/cycle`       | `sensors2mqtt/sw_netgear_gsm7252ps/port/24/poe/cycle`       | `PRESS`                                                                      |
 | snmp-ctl                      | `sensors2mqtt/{sw}/port/+/poe/force/set`   | `sensors2mqtt/sw_netgear_gsm7252ps/port/24/poe/force/set`   | `ON` / `OFF`                                                                 |
 | snmp-ctl (startup, transient) | `sensors2mqtt/{sw}/port/+/poe/force/state` | `sensors2mqtt/sw_netgear_gsm7252ps/port/24/poe/force/state` | `ON` / `OFF` — 1-second read-back of retained force state, then unsubscribed |
+| local-ctl                     | `sensors2mqtt/{host}/power/shutdown/set`   | `sensors2mqtt/rpiz_dash_1/power/shutdown/set`               | `PRESS` → `shutdown -h now` (any other payload ignored)                       |
+| local-ctl                     | `sensors2mqtt/{host}/power/reboot/set`     | `sensors2mqtt/rpiz_dash_1/power/reboot/set`                 | `PRESS` → `shutdown -r now` (any other payload ignored)                       |
 
 ---
 
@@ -205,6 +212,7 @@ the connection drops ungracefully.
 | snmp      | switch keys (**shared**) | `sensors2mqtt-{host}-snmp`         | `sensors2mqtt/{host}/snmp/status`         |
 | snmp-ctl  | switch keys (shared)     | `sensors2mqtt-{host}-snmp_control` | `sensors2mqtt/{host}/snmp_control/status` |
 | ipmi      | `host_id()`              | `sensors2mqtt-{host}-ipmi_sensors` | `sensors2mqtt/{host}/ipmi_sensors/status` |
+| local-ctl | `host_id()`              | `sensors2mqtt-{host}-local_control` | `sensors2mqtt/{host}/local_control/status` |
 
 > `host_id()` is deliberately the **short** hostname for now. Two machines sharing
 > a short hostname (e.g. a `ten64` at two sites) would still collide on one broker;
@@ -227,6 +235,7 @@ Built by `discovery.py:availability_config()`: one topic → a single
 | snmp per-port sensors                | `{sw}/status`                                        | single      | yes (300)           |
 | PoE toggle / cycle                   | `{sw}/status` **AND** `{sw}/port/{NN}/poe/available` | `all` (AND) | n/a (switch/button) |
 | PoE force                            | `{sw}/status`                                        | single      | n/a (switch)        |
+| power buttons (shutdown / reboot)    | `{host}/local_control/status`                        | single      | n/a (button)        |
 
 `expire_after` is what makes a **shared** switch survive multi-host polling: any
 host publishing fresh state keeps the entity alive; only when *all* stop does it
