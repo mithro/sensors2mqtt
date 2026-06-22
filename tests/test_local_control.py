@@ -33,10 +33,11 @@ def _payload_for(ctrl, needle):
     raise AssertionError(f"no publish matching {needle!r}")
 
 
-def _msg(topic, payload):
+def _msg(topic, payload, retain=False):
     m = MagicMock()
     m.topic = topic
     m.payload = payload
+    m.retain = retain
     return m
 
 
@@ -152,6 +153,19 @@ class TestMessageRouting:
                          _msg("sensors2mqtt/dash/power/shutdown/set", b""))
         ctrl._executor.submit.assert_not_called()
 
+    def test_retained_press_ignored(self):
+        """A retained PRESS must never halt the host. The broker re-delivers
+        retained messages on every (re)subscribe and after every reboot, so a
+        retained PRESS (manual mosquitto_pub -r, buggy automation) would
+        otherwise trigger a shutdown/boot loop. Only live presses act."""
+        ctrl = _make_controller(node_id="dash")
+        ctrl._executor = MagicMock()
+        ctrl._on_message(
+            ctrl._client, None,
+            _msg("sensors2mqtt/dash/power/shutdown/set", b"PRESS", retain=True),
+        )
+        ctrl._executor.submit.assert_not_called()
+
     def test_unknown_action_ignored(self):
         ctrl = _make_controller(node_id="dash")
         ctrl._executor = MagicMock()
@@ -243,6 +257,24 @@ class TestHandleCommand:
         ctrl = _make_controller()
         ctrl._handle_command("halt")
         mock_run.assert_not_called()
+
+    def test_reset_clears_busy_before_publishing_idle(self):
+        """The fail-safe must clear _busy *before* announcing idle. Otherwise a
+        retry press that races the reset sees state=idle (available) yet is
+        rejected as busy and silently dropped."""
+        ctrl = _make_controller()
+        ctrl._busy = True
+        busy_seen_when_idle_published = []
+        real_publish = ctrl._publish_state
+
+        def capture(state):
+            if state == "idle":
+                busy_seen_when_idle_published.append(ctrl._busy)
+            return real_publish(state)
+
+        ctrl._publish_state = capture
+        ctrl._reset_after_failure()
+        assert busy_seen_when_idle_published == [False]
 
 
 # ---------------------------------------------------------------------------

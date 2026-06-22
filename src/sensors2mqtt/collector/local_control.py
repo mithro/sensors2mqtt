@@ -69,8 +69,9 @@ ACTIONS: dict[str, dict] = {
     },
 }
 
-# Only this exact payload triggers an action; everything else is ignored so a
-# stray/retained message can never halt a host.
+# Only this exact payload triggers an action, and only when delivered live (not
+# retained — see _on_message). Any other payload, and any retained message, is
+# ignored so a stray message can never halt a host.
 TRIGGER_PAYLOAD = "PRESS"
 
 # sensors2mqtt/{node_id}/power/{action}/set
@@ -183,10 +184,15 @@ class PowerController:
         # daemon republishes idle (see _announce).
 
     def _reset_after_failure(self) -> None:
-        """A command did not take effect: clear busy and republish idle."""
-        self._publish_state("idle")
+        """A command did not take effect: clear busy and republish idle.
+
+        Clear ``_busy`` *before* publishing ``idle`` so the two are never
+        observed inconsistent: once a consumer sees ``idle`` (button available
+        again) a retry press is accepted, not rejected as still-busy.
+        """
         with self._busy_lock:
             self._busy = False
+        self._publish_state("idle")
 
     # ------------------------------------------------------------------
     # MQTT message handling
@@ -201,6 +207,13 @@ class PowerController:
             return
         if action not in ACTIONS:
             log.warning("power: unknown action %r in %s — ignoring", action, message.topic)
+            return
+        if message.retain:
+            # A retained command is stale by definition: the broker re-delivers it
+            # on every (re)subscribe and after every reboot. Acting on a retained
+            # PRESS would turn one stray message (a manual ``mosquitto_pub -r`` or
+            # a buggy automation) into a shutdown/boot loop. Only live presses act.
+            log.warning("power: %s ignored — retained (stale) message", action)
             return
         payload = message.payload.decode("utf-8", errors="replace").strip()
         if payload != TRIGGER_PAYLOAD:
