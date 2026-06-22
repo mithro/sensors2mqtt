@@ -410,3 +410,15 @@ def test_dynamic_discovery_published_once(mock_mqtt_client):
 def test_no_dynamic_sensors_unchanged(mock_mqtt_client):
     _FakePub([])._poll_once(mock_mqtt_client)
     assert '"static": 1' in _states(mock_mqtt_client)[-1]["payload"]
+
+
+def test_dynamic_only_when_poll_returns_none(mock_mqtt_client):
+    """Dynamic sensors still publish (and device stays online) when poll() returns None."""
+    sd = SensorDef("sfp_cage1_temp", "SFP Cage 1 Temp", "°C", device_class="temperature")
+
+    class _NoPollPub(_FakePub):
+        def poll(self):
+            return None
+
+    _NoPollPub([(sd, 35.0)])._poll_once(mock_mqtt_client)
+    assert '"sfp_cage1_temp": 35.0' in _states(mock_mqtt_client)[-1]["payload"]
