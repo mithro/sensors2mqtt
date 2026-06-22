@@ -40,11 +40,11 @@ class TestProbeThermalZones:
         suffixes = [ls.sensor.suffix for ls in c._sensors_list]
         assert "cpu_temp" in suffixes
 
-    def test_mellanox_finds_mlxsw_thermal(self):
+    def test_mellanox_finds_acpitz_thermal(self):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "mellanox_sysfs"))
         suffixes = [ls.sensor.suffix for ls in c._sensors_list]
-        # mlxsw type → "mlxsw_temp" suffix
-        assert "mlxsw_temp" in suffixes
+        # acpitz type → "acpitz_temp" suffix
+        assert "acpitz_temp" in suffixes
 
     def test_thermal_sensor_has_correct_unit(self):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
@@ -317,12 +317,12 @@ class TestPoll:
         assert values is not None
         assert values["mem_total_mb"] == round(443816 / 1024)
 
-    def test_mellanox_poll_gets_mlxsw_temp(self):
+    def test_mellanox_poll_gets_acpitz_temp(self):
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "mellanox_sysfs"))
         values = c.poll()
         assert values is not None
-        assert "mlxsw_temp" in values
-        assert values["mlxsw_temp"] == 42.0
+        assert "acpitz_temp" in values
+        assert values["acpitz_temp"] == 27.8
 
     def test_poll_all_values_have_matching_sensor(self):
         """Every value key in poll() output should match a sensor suffix."""
@@ -377,11 +377,6 @@ class TestSensorCounts:
     def test_rpizero_count(self):
         """No hwmon -> 8 common only."""
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpizero_sysfs"))
-        assert len(c._sensors_list) == 8
-
-    def test_mellanox_count_old_fixture(self):
-        """Old mellanox fixture: only a thermal-backed mlxsw hwmon -> 8 common."""
-        c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "mellanox_sysfs"))
         assert len(c._sensors_list) == 8
 
     def test_no_double_cpu_temp(self):
