@@ -37,18 +37,16 @@ class TestMellanoxSensors:
         assert sensors["asic_temp"].entity_category is None
         assert sensors["board_temp"].entity_category is None
 
-    def test_front_panel_module_temps_generic(self):
-        # Per-port transceiver temps publish generically; #41 owns sfp_portNN naming + DDM.
+    def test_front_panel_temps_not_generic(self):
+        # Per-port module temps are now owned by the SFP probe (#41), not the engine.
         s = {ls.sensor.suffix for ls in make_mellanox()._sensors_list}
-        assert "mlxsw_front_panel_001" in s
-        assert "mlxsw_front_panel_056" in s
+        assert not any(x.startswith("mlxsw_front_panel_") for x in s)
 
     def test_poll_reads_from_sysfs(self):
         v = make_mellanox().poll()
         assert v["asic_temp"] == 42.0
         assert v["board_temp"] == round(29375 * 0.001, 1)
         assert v["fan1_rpm"] == 6239
-        assert v["mlxsw_front_panel_001"] == 0.0  # empty cage
 
     def test_cpu_temp_from_thermal_zone(self):
         # acpitz thermal zone -> acpitz_temp (not cpu_temp on this box)
