@@ -106,6 +106,7 @@ class RpiCollector(LocalCollector):
                     source=SysfsSource(path=rel_path, precision=0),
                 )
             )
+            log.debug("Probed rpi_volt: supply_undervoltage")
 
     def _probe_cooling_fan(self) -> None:
         """Probe RPi 5 active cooler fan speed."""

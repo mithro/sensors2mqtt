@@ -41,15 +41,15 @@ def auto_detect(sysfs_root: str = "/") -> type[LocalCollector]:
     from sensors2mqtt.collector.local.hwmon import iter_hwmon
 
     for hwmon in iter_hwmon(root / "sys/class/hwmon"):
-        name_file = hwmon / "name"
         try:
-            if name_file.exists() and "mlxsw" in name_file.read_text():
-                from sensors2mqtt.collector.local.mellanox import MellanoxCollector
-                log.info("Auto-detected Mellanox switch (driver: %s)",
-                         name_file.read_text().strip())
-                return MellanoxCollector
+            name = (hwmon / "name").read_text().strip()
         except OSError:
-            pass
+            continue
+        if "mlxsw" in name:
+            from sensors2mqtt.collector.local.mellanox import MellanoxCollector
+
+            log.info("Auto-detected Mellanox switch (driver: %s)", name)
+            return MellanoxCollector
 
     log.info("No specific hardware detected, using generic LocalCollector")
     return LocalCollector

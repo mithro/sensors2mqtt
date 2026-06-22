@@ -157,3 +157,15 @@ class TestFindHwmon:
     def test_find_missing_returns_none(self, tmp_path):
         (tmp_path / "sys/class/hwmon").mkdir(parents=True)
         assert find_hwmon_by_name(tmp_path / "sys/class/hwmon", "nope") is None
+
+    def test_iter_hwmon_skips_non_directories(self, tmp_path):
+        # A stray non-directory matching hwmon* must not be yielded (so callers
+        # never iterdir() a file). hwmonN are always directories in real sysfs.
+        from sensors2mqtt.collector.local.hwmon import iter_hwmon
+
+        hwroot = tmp_path / "sys/class/hwmon"
+        hwroot.mkdir(parents=True)
+        (hwroot / "hwmon0").mkdir()
+        (hwroot / "hwmon0" / "name").write_text("real\n")
+        (hwroot / "hwmonbogus").write_text("stray non-dir\n")
+        assert [p.name for p in iter_hwmon(hwroot)] == ["hwmon0"]

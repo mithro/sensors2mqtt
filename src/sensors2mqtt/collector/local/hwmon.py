@@ -80,7 +80,8 @@ def iter_hwmon(hwmon_root: Path):
         return
     for hw in sorted(hwmon_root.glob("hwmon*"),
                      key=lambda p: int(re.sub(r"\D", "", p.name) or 0)):
-        yield hw
+        if hw.is_dir():  # skip any stray non-directory hwmon* entry
+            yield hw
 
 
 def find_hwmon_by_name(hwmon_root: Path, name: str) -> Path | None:
@@ -165,6 +166,9 @@ def _thermal_zone_types(sysfs_root: Path) -> set[str]:
 def _is_thermal_backed(hw: Path, name: str, thermal_types: set[str]) -> bool:
     dev = hw / "device"
     if dev.exists():
+        # realpath is intentionally sysfs_root-agnostic: real sysfs `device`
+        # symlinks are relative, so they resolve within an injected sysfs_root,
+        # and we only test the resolved path's "thermal_zone" component/basename.
         real = os.path.realpath(dev)
         if "/thermal/thermal_zone" in real or os.path.basename(real).startswith("thermal_zone"):
             return True
@@ -202,6 +206,9 @@ def discover_hwmon_sensors(sysfs_root: str, taken_suffixes: Iterable[str]) -> li
             if cspec.suffix:
                 suffix, disp = cspec.suffix, (cspec.name or cspec.suffix)
             else:
+                # Deterministic fallback name (e.g. "0 004C Temp1"); human-friendly
+                # names come from PERIPHERAL_HWMON overrides (RPi/Mellanox today,
+                # ten64/SFP via #56/#41), not from prettifying the generic slug.
                 label = _read(hw / f"{chan}_label")
                 chan_part = _slug(label) if label else chan
                 suffix = _slug(f"{instance}_{chan_part}")
