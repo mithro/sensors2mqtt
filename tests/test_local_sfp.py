@@ -35,7 +35,8 @@ def test_full_ddm_one_cage(tmp_path):
     assert s["sfp_cage1_temp"] == 35.0
     assert s["sfp_cage1_vcc"] == 3.3
     assert "sfp_cage1_bias" in s
-    assert "sfp_cage1_tx_power" in s and "sfp_cage1_rx_power" in s
+    assert s["sfp_cage1_tx_power"] == _dbm(501)   # power1_input -> TX optical power (dBm)
+    assert s["sfp_cage1_rx_power"] == _dbm(398)   # power2_input -> RX optical power (dBm)
 
 
 def test_two_cages_distinct(tmp_path):
