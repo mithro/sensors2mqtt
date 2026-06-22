@@ -226,6 +226,12 @@ class LocalCollector(BasePublisher):
 
         return find_hwmon_by_name(self._sysfs_root / "sys/class/hwmon", driver_name)
 
+    def dynamic_sensors(self) -> list:
+        """Per-poll SFP/transceiver DDM (host-agnostic sfp-driver hwmon)."""
+        from sensors2mqtt.collector.local.sfp import probe_sfp_hwmon
+
+        return probe_sfp_hwmon(str(self._sysfs_root))
+
     def _probe_hardware_sensors(self) -> None:
         """Override in subclass to add hardware-specific sensors."""
 
