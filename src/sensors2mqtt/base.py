@@ -170,6 +170,7 @@ class BasePublisher(ABC):
         self.config = config or MqttConfig.from_env()
         self._stop_event = threading.Event()
         self._discovery_published = False
+        self._dynamic_discovered: set[str] = set()
 
     @property
     @abstractmethod
@@ -189,6 +190,14 @@ class BasePublisher(ABC):
     @abstractmethod
     def poll(self) -> dict | None:
         """Poll sensors. Return {suffix: value} dict, or None on failure."""
+
+    def dynamic_sensors(self) -> list[tuple[SensorDef, object]]:
+        """Sensors discovered at runtime, re-probed each poll. Override to add.
+
+        Returns (SensorDef, value) pairs; discovery is published the first time a
+        suffix appears, values are merged into the published state each cycle.
+        """
+        return []
 
     @property
     def client_id(self) -> str:
@@ -238,19 +247,31 @@ class BasePublisher(ABC):
         """Execute one poll cycle."""
         log.info("Polling sensors")
         values = self.poll()
+        dynamic = self.dynamic_sensors()
 
-        if values is None:
+        if values is None and not dynamic:
             client.publish(self.avail_topic, "offline", retain=True)
             log.warning("No sensor data")
             return
 
+        values = dict(values or {})
+        for sensor_def, value in dynamic:
+            values[sensor_def.suffix] = value
+
         if not self._discovery_published:
             count = publish_discovery(
-                client, self.sensors, self.device,
-                self.state_topic, self.avail_topic,
+                client, self.sensors, self.device, self.state_topic, self.avail_topic,
             )
             self._discovery_published = True
             log.info("Published MQTT discovery for %d sensors", count)
+
+        new_dynamic = [sd for sd, _ in dynamic if sd.suffix not in self._dynamic_discovered]
+        if new_dynamic:
+            publish_discovery(
+                client, new_dynamic, self.device, self.state_topic, self.avail_topic,
+            )
+            self._dynamic_discovered.update(sd.suffix for sd in new_dynamic)
+            log.info("Published discovery for %d new dynamic sensor(s)", len(new_dynamic))
 
         publish_state(client, self.state_topic, values)
         client.publish(self.avail_topic, "online", retain=True)
