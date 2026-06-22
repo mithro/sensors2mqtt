@@ -26,6 +26,7 @@ standalone systemd service on the target host.
 | `sensors2mqtt-local` | `sensors2mqtt-local` | Auto-detects hardware; installs **enabled and started** — no config needed |
 | `sensors2mqtt-snmp` | `sensors2mqtt-snmp` | Installs **enabled, not started** — requires `/etc/sensors2mqtt/snmp.toml` |
 | `sensors2mqtt-snmp-control` | `sensors2mqtt-snmp-control` | Installs **enabled, not started** — requires `/etc/sensors2mqtt/snmp.toml` |
+| `sensors2mqtt-local-control` | `sensors2mqtt-local-control` | Installs **enabled, not started** — exposes Shutdown/Reboot buttons for this host; **runs as root** |
 | `sensors2mqtt-ipmi-sensors` | `sensors2mqtt-ipmi-sensors` | Installs **enabled, not started** — requires `BMC_*` vars in `/etc/sensors2mqtt/env` |
 
 Packages are co-installable; a single host can run multiple collectors simultaneously.
@@ -45,6 +46,20 @@ sudo systemctl start sensors2mqtt-snmp    # or sensors2mqtt-snmp-control
 > The snmp collectors refuse to start if `/etc/sensors2mqtt/snmp.toml` is
 > group- or world-accessible (it contains SNMP community strings). The seeded
 > `/etc/sensors2mqtt/env` is created `0600` automatically.
+
+**Local-control bring-up** (graceful Shutdown/Reboot buttons for this host):
+```bash
+sudo apt install sensors2mqtt-local-control
+# Reuses /etc/sensors2mqtt/env (same MQTT creds as sensors2mqtt-local):
+sudo editor /etc/sensors2mqtt/env
+sudo systemctl start sensors2mqtt-local-control
+```
+
+> Runs **as root** and calls `/sbin/shutdown` directly, so install it only on
+> hosts you intend to power-control over MQTT. It acts only on the exact button
+> payload `PRESS`. A consumer that then cuts mains power must independently
+> confirm the host is off — the daemon's `power/state` ack is not a power-state
+> confirmation (see `docs/local-control-plan.md`).
 
 **IPMI bring-up:**
 ```bash
@@ -75,6 +90,9 @@ uv run python -m sensors2mqtt.collector.local
 
 # IPMI sensor collector (remote BMC)
 uv run python -m sensors2mqtt.collector.ipmi_sensors
+
+# Host power-control service (Shutdown/Reboot buttons for this host)
+uv run python -m sensors2mqtt.collector.local_control
 ```
 
 ### Environment Variables
