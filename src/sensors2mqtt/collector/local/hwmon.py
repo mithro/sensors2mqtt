@@ -57,6 +57,7 @@ class DriverSpec:
     instance_id: Callable[[Path], str] | None = None
     scale: dict[str, float] = field(default_factory=dict)
     channels: dict[str, ChannelSpec] = field(default_factory=dict)
+    instance_channels: dict[str, dict[str, ChannelSpec]] = field(default_factory=dict)
     include: bool = True
 
 
@@ -199,7 +200,11 @@ def discover_hwmon_sensors(sysfs_root: str, taken_suffixes: Iterable[str]) -> li
             chan = f"{kind}{idx}"
             if thermal_backed and chan == "temp1":
                 continue
-            cspec = spec.channels.get(chan, ChannelSpec())
+            cspec = (
+                spec.instance_channels.get(instance, {}).get(chan)
+                or spec.channels.get(chan)
+                or ChannelSpec()
+            )
             if cspec.skip:
                 continue
             meta = KIND_META[kind]
