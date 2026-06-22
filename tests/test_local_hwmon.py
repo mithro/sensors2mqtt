@@ -112,6 +112,13 @@ class TestChannelOverrides:
         assert "disk_naa_5000cca273c8468f_temp1" in suffixes(
             discover_hwmon_sensors(str(tmp_path), set()))
 
+    def test_drivetemp_without_wwid_uses_device_basename(self, tmp_path):
+        # No wwid file -> instance falls back to slug(device basename), with no
+        # "disk_" prefix (the prefix is added only for the wwid-derived form).
+        mk_hwmon(tmp_path, 0, "drivetemp", {"temp1_input": "31000"}, device="2:0:0:0")
+        assert "2_0_0_0_temp1" in suffixes(
+            discover_hwmon_sensors(str(tmp_path), set()))
+
 
 class TestThermalBacked:
     def test_skips_symlinked_thermal_zone_primary(self, tmp_path):
