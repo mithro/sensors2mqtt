@@ -80,8 +80,9 @@ DEFAULT_CONFIG_PATHS = [
 class LocalCollector(BasePublisher):
     """Base for all local sensor collectors.
 
-    Probes sysfs thermal zones, hwmon drivers, and /proc diagnostics at startup.
-    Subclasses override ``_probe_hardware_sensors()`` to add device-specific sensors.
+    Probes sysfs thermal zones, generic hwmon drivers, and /proc diagnostics at
+    startup.  Subclasses override ``_probe_hardware_sensors()`` to add
+    device-specific sensors not covered by the generic hwmon engine.
     """
 
     def __init__(
@@ -207,7 +208,23 @@ class LocalCollector(BasePublisher):
     def _probe_common_sensors(self) -> None:
         """Probe sensors available on any Linux box."""
         self._probe_thermal_zones()
+        self._probe_peripheral_hwmon()
         self._probe_system_diagnostics()
+
+    def _probe_peripheral_hwmon(self) -> None:
+        """Register generic hwmon sensors (deduped against already-probed suffixes)."""
+        from sensors2mqtt.collector.local.hwmon import discover_hwmon_sensors
+
+        taken = {ls.sensor.suffix for ls in self._sensors_list}
+        self._sensors_list.extend(
+            discover_hwmon_sensors(str(self._sysfs_root), taken_suffixes=taken)
+        )
+
+    def _find_hwmon_by_name(self, driver_name: str):
+        """Find hwmon directory by driver name (shared primitive)."""
+        from sensors2mqtt.collector.local.hwmon import find_hwmon_by_name
+
+        return find_hwmon_by_name(self._sysfs_root / "sys/class/hwmon", driver_name)
 
     def _probe_hardware_sensors(self) -> None:
         """Override in subclass to add hardware-specific sensors."""

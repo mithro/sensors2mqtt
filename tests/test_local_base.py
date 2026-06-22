@@ -361,18 +361,32 @@ class TestTopics:
 
 
 class TestSensorCounts:
-    def test_rpi5_common_sensor_count(self):
-        """RPi 5 base probe: 1 thermal + 7 diagnostics = 8 common sensors."""
+    def test_rpi5_count(self):
+        """8 common + rp1_adc(4 V + 1 temp) = 13. cpu_thermal hwmon is thermal-backed."""
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
-        # cpu_temp + uptime + mem_total + mem_available + mem_used_pct + load_1/5/15
-        assert len(c._sensors_list) == 8
+        assert len(c._sensors_list) == 13
+        suffixes = {ls.sensor.suffix for ls in c._sensors_list}
+        assert {"rp1_v1", "rp1_v2", "rp1_v3", "rp1_v4", "rp1_temp"} <= suffixes
 
-    def test_rpizero_common_sensor_count(self):
-        """RPi Zero base probe: 1 thermal + 7 diagnostics = 8."""
+    def test_rpi4_count(self):
+        """8 common + rpi_volt in0 -> supply_voltage = 9."""
+        c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi4_sysfs"))
+        assert len(c._sensors_list) == 9
+        assert "supply_voltage" in {ls.sensor.suffix for ls in c._sensors_list}
+
+    def test_rpizero_count(self):
+        """No hwmon -> 8 common only."""
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpizero_sysfs"))
         assert len(c._sensors_list) == 8
 
-    def test_mellanox_common_sensor_count(self):
-        """Mellanox base probe: 1 thermal (mlxsw) + 7 diagnostics = 8."""
+    def test_mellanox_count_old_fixture(self):
+        """Old mellanox fixture: only a thermal-backed mlxsw hwmon -> 8 common."""
         c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "mellanox_sysfs"))
         assert len(c._sensors_list) == 8
+
+    def test_no_double_cpu_temp(self):
+        """core_cluster/cpu_thermal hwmon must NOT duplicate the thermal-zone cpu_temp."""
+        c = LocalCollector(config=make_config(), sysfs_root=str(FIXTURES / "rpi5_sysfs"))
+        suffixes = [ls.sensor.suffix for ls in c._sensors_list]
+        assert suffixes.count("cpu_temp") == 1
+        assert "cpu_thermal_temp1" not in suffixes
