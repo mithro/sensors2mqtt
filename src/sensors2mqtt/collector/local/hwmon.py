@@ -139,8 +139,9 @@ PERIPHERAL_HWMON: dict[str, DriverSpec] = {
     }),
     "rpi_volt": DriverSpec(channels={
         "in0": ChannelSpec(suffix="supply_voltage", name="Supply Voltage", diagnostic=False)}),
-    # Mellanox specialization naming (Task 4). instance_id keeps the un-named
-    # per-port module temps generic as mlxsw_front_panel_0NN (for #41 to refine).
+    # Mellanox specialization naming (Task 4). instance_id collapses all mlxsw
+    # hwmon nodes to one key; temp2..temp57 (per-port module temps) are marked
+    # skip=True because probe_sfp_mlxsw (#41) now owns them as sfp_port{NN}_*.
     "mlxsw": DriverSpec(instance_id=lambda hw: "mlxsw", channels=_mlxsw_channels()),
     "jc42": DriverSpec(channels={
         "temp1": ChannelSpec(
