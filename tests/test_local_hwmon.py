@@ -84,6 +84,20 @@ class TestScaleOverrides:
         assert s.sensor.unit == "V"
         assert s.source.scale == 1e-6  # microvolts, not the ABI millivolts
 
+    def test_emc1704_microvolt_scale(self, tmp_path):
+        mk_hwmon(tmp_path, 0, "emc1704", {"in0_input": "3286680"}, device="2-0067")
+        s = by_suffix(discover_hwmon_sensors(str(tmp_path), set()), "2_0067_in0")
+        assert s.sensor.unit == "V"
+        assert s.source.scale == 1e-6  # microvolts, like pac1934
+
+    def test_override_channel_is_non_diagnostic(self, tmp_path):
+        # jc42 temp1 -> board_temp override carries diagnostic=False, so the
+        # sensor must be a PRIMARY entity (entity_category None), not diagnostic.
+        mk_hwmon(tmp_path, 0, "jc42", {"temp1_input": "29375"}, device="0-001b")
+        s = by_suffix(discover_hwmon_sensors(str(tmp_path), set()), "board_temp")
+        assert s.sensor.name == "Board Temperature"
+        assert s.sensor.entity_category is None
+
 
 class TestChannelOverrides:
     def test_ath11k_renamed_to_wifi(self, tmp_path):
