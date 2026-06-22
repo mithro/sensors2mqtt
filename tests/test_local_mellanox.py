@@ -21,6 +21,12 @@ class TestMellanoxDeviceInfo:
         assert c.device.manufacturer == "Mellanox"
         assert c.device.model == "SN2410"
 
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="sw-bb-25g")
+    def test_mac_prefers_bmc(self, _m):
+        # _mac_interfaces() = ("bmc", "eth0") -> identify by the bmc MAC.
+        c = make_mellanox()
+        assert c.device.connections == (("mac", "1c:34:da:42:e8:8c"),)
+
 
 class TestMellanoxSensors:
     def test_preserved_suffixes(self):

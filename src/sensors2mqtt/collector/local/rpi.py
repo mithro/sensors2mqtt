@@ -1,7 +1,10 @@
 """RPi sensor collector specialization.
 
-Adds Raspberry Pi-specific sensors: RP1 ADC voltages/temperature,
-rpi_volt supply voltage, active cooler fan, vcgencmd throttle state.
+Adds RPi-specific sensors not covered by the generic hwmon engine: the
+rpi_volt undervoltage alarm flag, active cooler fan speed, and vcgencmd
+throttle state. RP1 ADC voltages/temperature and rpi_volt supply voltage
+now come from the generic hwmon engine in the base collector (via the
+rp1_adc / rpi_volt entries in PERIPHERAL_HWMON).
 """
 
 from __future__ import annotations
@@ -52,8 +55,9 @@ class VcgencmdSource:
 class RpiCollector(LocalCollector):
     """RPi-specific sensor collector.
 
-    Adds RP1 ADC (RPi 5), rpi_volt supply voltage (RPi 3/4),
-    active cooler fan (RPi 5), and vcgencmd throttle state.
+    Adds the rpi_volt undervoltage alarm, active cooler fan (RPi 5), and
+    vcgencmd throttle state. RP1 ADC (RPi 5) and rpi_volt supply voltage
+    (RPi 3/4) come from the base collector's generic hwmon engine.
     """
 
     def __init__(self, *args, **kwargs):
