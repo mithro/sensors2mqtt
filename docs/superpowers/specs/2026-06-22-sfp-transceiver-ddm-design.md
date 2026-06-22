@@ -13,7 +13,7 @@ publishes HA discovery for SFP entities as they appear. Sibling of #40 (SNMP).
 
 **Tech Stack:** Builds on #57's engine helpers (`find_hwmon_by_name`); stdlib +
 `subprocess` (`ethtool -m`); `SensorDef`/discovery; pytest with fake-sysfs +
-canned `ethtool` fixtures. New deploy requirement: `CAP_NET_ADMIN` on the unit.
+canned `ethtool` fixtures. No packaging change (the local collector already runs as root).
 
 ## Global Constraints
 
@@ -22,9 +22,11 @@ canned `ethtool` fixtures. New deploy requirement: `CAP_NET_ADMIN` on the unit.
 - **Depends on #57** (the hwmon engine + the `mlxsw` registry entry, which #41
   edits to skip the generic per-port temps + reuses `find_hwmon_by_name`).
   Independent of #56. Executes after #57 merges; rebase onto it first.
-- Privilege: only the Mellanox `ethtool -m` path needs `CAP_NET_ADMIN`, granted
-  via systemd `AmbientCapabilities` on the `sensors2mqtt-local` unit. The ten64
-  hwmon path stays unprivileged.
+- Privilege: the `sensors2mqtt-local` unit has no `User=`, so the collector runs
+  as **root** today — `ethtool -m` (which needs `CAP_NET_ADMIN`) works as-is, so
+  #41 needs no packaging/privilege change. The probe still degrades to temp-only
+  if `ethtool -m` is ever denied (future non-root hardening). ten64's hwmon path
+  is unprivileged regardless.
 - SFP sensors are **dynamic**: re-probed every poll; populated cages only (skip
   empty cages and passive DACs, which carry no DDM).
 - **No live validation possible yet** (no DDM-capable optical module is seated on
@@ -107,23 +109,22 @@ def dynamic_sensors(self) -> list[tuple[SensorDef, value]]:
 The publish cycle: call `dynamic_sensors()` each poll; for any suffix not seen
 before, publish its HA discovery config (retained); then include all dynamic
 values in the published state. A removed module simply stops being returned and
-goes stale via `expire_after`. `Ten64Collector` and `MellanoxCollector` override
-`dynamic_sensors()` to call their respective `sfp.py` backend.
+goes stale via `expire_after`. The base `LocalCollector.dynamic_sensors()` runs
+the hwmon backend (host-agnostic — any host with a `sfp`-driver node, ten64
+included); `MellanoxCollector` overrides it for the mlxsw + `ethtool -m` backend.
+Placing the hwmon backend in the base keeps #41 dependent only on #57 (not on
+#56's `Ten64Collector`), so #56 and #41 can run in parallel after #57.
 
-### 4. Privilege (packaging)
+### 4. Privilege
 
-The Mellanox `ethtool -m` path needs `CAP_NET_ADMIN`. Add to the
-`sensors2mqtt-local` systemd unit:
-
-```ini
-AmbientCapabilities=CAP_NET_ADMIN
-CapabilityBoundingSet=CAP_NET_ADMIN
-```
-
-The collector keeps running as its non-root user. ten64 needs nothing (hwmon is
-world-readable); the capability is harmless there. If `ethtool -m` fails
-(permission or unsupported), the probe logs once and yields temp-only for that
-port — never crashes the poll.
+The Mellanox `ethtool -m` path needs `CAP_NET_ADMIN`. The `sensors2mqtt-local`
+systemd unit has no `User=`, so the collector runs as **root** — it already has
+`CAP_NET_ADMIN`, and full Mellanox DDM works with **no packaging change**. ten64
+needs nothing (hwmon is world-readable). If `ethtool -m` ever fails (denied or
+unsupported), the probe logs once and yields temp-only for that port — never
+crashes the poll. Hardening the collector to a non-root user (which would then
+need `AmbientCapabilities=CAP_NET_ADMIN` on the unit) is a separate, fleet-wide
+task tracked outside #41.
 
 ### 5. Superseding #57's generic Mellanox temps
 
@@ -141,13 +142,15 @@ as `sfp_port{NN}_temp` (alongside the rest of the DDM). When #41 lands, the
   `probe_sfp_mlxsw`, `run_ethtool`, an `ethtool -m` DDM parser, dBm helper.
 - **Modify** `src/sensors2mqtt/base.py` — `dynamic_sensors()` hook + publish-loop
   integration (discovery-on-first-sight + state).
-- **Modify** `src/sensors2mqtt/collector/local/ten64.py` — override
-  `dynamic_sensors()` → `probe_sfp_hwmon`.
+- **Modify** `src/sensors2mqtt/collector/local/base.py` (`LocalCollector`, not the
+  `BasePublisher` above) — override `dynamic_sensors()` → `probe_sfp_hwmon`
+  (host-agnostic; runs on every local collector).
 - **Modify** `src/sensors2mqtt/collector/local/mellanox.py` — override
   `dynamic_sensors()` → `probe_sfp_mlxsw`; `_mac_interfaces` unchanged.
 - **Modify** `src/sensors2mqtt/collector/local/hwmon.py` — `mlxsw` entry:
   `temp2`..`temp57` → `skip=True`.
-- **Modify** packaging systemd unit — `AmbientCapabilities=CAP_NET_ADMIN`.
+- *(No packaging change — the collector already runs as root; non-root hardening
+  + `AmbientCapabilities` is a separate fleet-wide task.)*
 - **Create** `tests/test_local_sfp.py`; SFP fixtures (synthetic `sfp` hwmon tree;
   canned `ethtool -m` text).
 
@@ -190,8 +193,10 @@ populated port.
 
 - **Scaling uncertainty:** bias (µA vs mA) and power decode are unverifiable
   without a live module; isolated in the probe + flagged for live validation.
-- **Privilege surface:** `CAP_NET_ADMIN` on the unit is a real (if scoped)
-  escalation; bounded by `CapabilityBoundingSet`.
+- **Runs as root today:** #41 relies on the collector's existing root to call
+  `ethtool -m`; the temp-only fallback bounds the blast radius if that ever
+  changes. Long-term, hardening to non-root + `AmbientCapabilities=CAP_NET_ADMIN`
+  is cleaner (separate task).
 - **Dynamic-discovery churn:** mis-tracking "seen" suffixes could re-publish
   configs each poll — tests pin the publish-once behavior.
 - **ethtool output format:** parser keys off ethtool's DDM line labels, which
