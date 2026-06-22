@@ -10,9 +10,10 @@ import logging
 import math
 import os
 import re
+import subprocess
 from pathlib import Path
 
-from sensors2mqtt.collector.local.hwmon import iter_hwmon
+from sensors2mqtt.collector.local.hwmon import find_hwmon_by_name, iter_hwmon
 from sensors2mqtt.discovery import SensorDef
 
 log = logging.getLogger(__name__)
@@ -88,4 +89,88 @@ def probe_sfp_hwmon(sysfs_root: str) -> list[tuple[SensorDef, float]]:
                 out.append((_sfp_sensor(prefix, field, name, "dBm"), _dbm(float(raw))))
             except ValueError:
                 continue
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Mellanox mlxsw backend (Task 3)
+# ---------------------------------------------------------------------------
+
+_DDM_PATTERNS = [
+    ("temp", "module temperature", r"(-?\d+\.?\d*)\s*degrees c"),
+    ("vcc", "module voltage", r"(-?\d+\.?\d*)\s*v\b"),
+    ("bias", "laser bias current", r"(-?\d+\.?\d*)\s*ma\b"),
+    ("tx_power", "laser output power", r"(-?\d+\.?\d*)\s*dbm"),
+    ("tx_power", "transmit avg optical power", r"(-?\d+\.?\d*)\s*dbm"),
+    ("rx_power", "receiver signal average optical power", r"(-?\d+\.?\d*)\s*dbm"),
+    ("rx_power", "rcvr signal avg optical power", r"(-?\d+\.?\d*)\s*dbm"),
+]
+
+
+def parse_ethtool_ddm(text: str) -> dict[str, float]:
+    """Pull DDM fields from `ethtool -m` decoded text. Tolerant of missing lines."""
+    out: dict[str, float] = {}
+    for line in text.splitlines():
+        label, sep, val = line.partition(":")
+        if not sep:
+            continue
+        label, val = label.strip().lower(), val.strip().lower()
+        for field, key, pat in _DDM_PATTERNS:
+            if field in out or key not in label:
+                continue
+            m = re.search(pat, val)
+            if m:
+                out[field] = float(m.group(1))
+    return out
+
+
+def run_ethtool(iface: str) -> str:
+    try:
+        r = subprocess.run(
+            ["ethtool", "-m", iface], capture_output=True, text=True, timeout=10
+        )
+        if r.returncode != 0:
+            log.warning(
+                "ethtool -m %s failed (rc=%d): %s", iface, r.returncode, r.stderr.strip()
+            )
+            return ""
+        return r.stdout
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log.warning("ethtool -m %s error: %s", iface, e)
+        return ""
+
+
+def probe_sfp_mlxsw(sysfs_root: str, ethtool=run_ethtool) -> list[tuple[SensorDef, float]]:
+    """Mellanox per-port DDM: temp from mlxsw hwmon, rest from `ethtool -m`."""
+    hw = find_hwmon_by_name(Path(sysfs_root) / "sys/class/hwmon", "mlxsw")
+    if hw is None:
+        return []
+    out: list[tuple[SensorDef, float]] = []
+    for n in range(2, 58):              # temp2..temp57 = front-panel ports 1..56
+        port = n - 1
+        crit = _read(hw / f"temp{n}_crit")
+        if not crit or crit == "0":     # crit==0 -> no DDM module present
+            continue
+        prefix = f"sfp_port{port:02d}"
+        traw = _read(hw / f"temp{n}_input")
+        if traw is not None:
+            try:
+                out.append((
+                    _sfp_sensor(
+                        prefix, "temp", f"SFP Port {port:02d} Temperature", "°C", "temperature"
+                    ),
+                    round(float(traw) * 0.001, 1),
+                ))
+            except ValueError:
+                pass
+        ddm = parse_ethtool_ddm(ethtool(f"swp{port:02d}"))
+        for field, unit, dclass in (
+            ("vcc", "V", "voltage"),
+            ("bias", "mA", "current"),
+            ("tx_power", "dBm", None),
+            ("rx_power", "dBm", None),
+        ):
+            if field in ddm:
+                name = f"SFP Port {port:02d} {field.replace('_', ' ').upper()}"
+                out.append((_sfp_sensor(prefix, field, name, unit, dclass), ddm[field]))
     return out

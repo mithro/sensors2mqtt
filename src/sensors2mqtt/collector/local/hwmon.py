@@ -110,14 +110,14 @@ def _drivetemp_instance(hw: Path) -> str:
 
 
 def _mlxsw_channels() -> dict[str, ChannelSpec]:
-    # The switch's own primary sensors. temp2..temp57 (per-port transceiver
-    # module temps) are intentionally NOT named here: #57 lets them publish
-    # generically as mlxsw_front_panel_0NN; #41 owns proper sfp_portNN naming + DDM.
+    # The switch's own primary sensors.
     chans = {"temp1": ChannelSpec(suffix="asic_temp", name="ASIC Temperature", diagnostic=False)}
     fan_names = ["Fan 1 Front", "Fan 1 Rear", "Fan 2 Front", "Fan 2 Rear",
                  "Fan 3 Front", "Fan 3 Rear", "Fan 4 Front", "Fan 4 Rear"]
     for i, fname in enumerate(fan_names, start=1):
         chans[f"fan{i}"] = ChannelSpec(suffix=f"fan{i}_rpm", name=fname, diagnostic=False)
+    for n in range(2, 58):  # per-port module temps owned by the SFP probe (#41)
+        chans[f"temp{n}"] = ChannelSpec(skip=True)
     return chans
 
 

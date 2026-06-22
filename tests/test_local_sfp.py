@@ -2,7 +2,12 @@
 import os
 from pathlib import Path
 
-from sensors2mqtt.collector.local.sfp import _dbm, probe_sfp_hwmon
+from sensors2mqtt.collector.local.sfp import (
+    _dbm,
+    parse_ethtool_ddm,
+    probe_sfp_hwmon,
+    probe_sfp_mlxsw,
+)
 
 
 def mk_sfp(root: Path, idx: int, cage_dev: str, channels: dict):
@@ -49,3 +54,54 @@ def test_two_cages_distinct(tmp_path):
 def test_no_sfp_node(tmp_path):
     (tmp_path / "sys/class/hwmon").mkdir(parents=True)
     assert probe_sfp_hwmon(str(tmp_path)) == []
+
+
+# ---------------------------------------------------------------------------
+# Mellanox mlxsw backend tests (Task 3)
+# ---------------------------------------------------------------------------
+
+ETHTOOL_SAMPLE = """\
+\tModule temperature                        : 35.00 degrees C / 95.00 degrees F
+\tModule voltage                            : 3.3000 V
+\tLaser bias current                        : 6.000 mA
+\tLaser output power                        : 0.5012 mW / -2.99 dBm
+\tReceiver signal average optical power      : 0.4000 mW / -3.98 dBm
+"""
+
+
+def mk_mlxsw(root: Path, ports_with_module: dict[int, str]):
+    """ports_with_module: {port -> temp_milli_c}; those get crit!=0 (DDM present)."""
+    hw = root / "sys/class/hwmon/hwmon1"
+    hw.mkdir(parents=True)
+    (hw / "name").write_text("mlxsw\n")
+    for n in range(2, 58):
+        port = n - 1
+        present = port in ports_with_module
+        (hw / f"temp{n}_input").write_text(f"{ports_with_module.get(port, 0)}\n")
+        (hw / f"temp{n}_crit").write_text(("90000" if present else "0") + "\n")
+
+
+def test_parse_ethtool_ddm():
+    d = parse_ethtool_ddm(ETHTOOL_SAMPLE)
+    assert d["temp"] == 35.0 and d["vcc"] == 3.3
+    assert d["bias"] == 6.0
+    assert d["tx_power"] == -2.99 and d["rx_power"] == -3.98
+
+
+def test_mlxsw_populated_port_full_ddm(tmp_path):
+    mk_mlxsw(tmp_path, {1: 36000})
+    s = suffixes(probe_sfp_mlxsw(str(tmp_path), ethtool=lambda iface: ETHTOOL_SAMPLE))
+    assert s["sfp_port01_temp"] == 36.0
+    assert s["sfp_port01_vcc"] == 3.3 and s["sfp_port01_tx_power"] == -2.99
+
+
+def test_mlxsw_empty_port_skipped(tmp_path):
+    mk_mlxsw(tmp_path, {})  # no DDM modules (all crit=0)
+    assert probe_sfp_mlxsw(str(tmp_path), ethtool=lambda iface: "") == []
+
+
+def test_mlxsw_ethtool_failure_temp_only(tmp_path):
+    mk_mlxsw(tmp_path, {1: 36000})
+    s = suffixes(probe_sfp_mlxsw(str(tmp_path), ethtool=lambda iface: ""))
+    assert s["sfp_port01_temp"] == 36.0
+    assert "sfp_port01_vcc" not in s  # ethtool gave nothing -> temp only
