@@ -34,6 +34,11 @@ def auto_detect(sysfs_root: str = "/") -> type[LocalCollector]:
 
                 log.info("Auto-detected Raspberry Pi: %s", model)
                 return RpiCollector
+            if "Traverse Ten64" in model:
+                from sensors2mqtt.collector.local.ten64 import Ten64Collector
+
+                log.info("Auto-detected Traverse Ten64")
+                return Ten64Collector
         except OSError:
             pass
 
