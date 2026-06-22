@@ -366,3 +366,47 @@ class TestMakeClient:
         inst = MockClient.return_value
         make_client(MqttConfig(user="u", password="p"), "c")
         inst.will_set.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Task 1: dynamic_sensors() hook — discovery-on-first-sight
+# ---------------------------------------------------------------------------
+
+
+class _FakePub(BasePublisher):
+    def __init__(self, dyn):
+        super().__init__(MqttConfig(host="t", port=1883, user="u", password="p"))
+        self._dyn = dyn
+
+    @property
+    def sensors(self): return []
+    @property
+    def device(self): return DeviceInfo(node_id="n", name="n", manufacturer="m", model="x")
+    @property
+    def module(self): return "local"
+    def poll(self): return {"static": 1}
+    def dynamic_sensors(self): return list(self._dyn)
+
+
+def _states(client):
+    return [m for m in client.published if m["topic"].endswith("/state")]
+
+
+def test_dynamic_sensor_value_in_state(mock_mqtt_client):
+    sd = SensorDef("sfp_cage1_temp", "SFP Cage 1 Temp", "°C", device_class="temperature")
+    _FakePub([(sd, 35.0)])._poll_once(mock_mqtt_client)
+    assert '"sfp_cage1_temp": 35.0' in _states(mock_mqtt_client)[-1]["payload"]
+
+
+def test_dynamic_discovery_published_once(mock_mqtt_client):
+    sd = SensorDef("sfp_cage1_temp", "SFP Cage 1 Temp", "°C", device_class="temperature")
+    p = _FakePub([(sd, 35.0)])
+    p._poll_once(mock_mqtt_client)
+    p._poll_once(mock_mqtt_client)
+    cfgs = [m for m in mock_mqtt_client.published if m["topic"].endswith("sfp_cage1_temp/config")]
+    assert len(cfgs) == 1  # published on first sight only
+
+
+def test_no_dynamic_sensors_unchanged(mock_mqtt_client):
+    _FakePub([])._poll_once(mock_mqtt_client)
+    assert '"static": 1' in _states(mock_mqtt_client)[-1]["payload"]
