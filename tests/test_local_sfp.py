@@ -69,7 +69,7 @@ ETHTOOL_SAMPLE = """\
 """
 
 
-def mk_mlxsw(root: Path, ports_with_module: dict[int, str]):
+def mk_mlxsw(root: Path, ports_with_module: dict[int, int]):
     """ports_with_module: {port -> temp_milli_c}; those get crit!=0 (DDM present)."""
     hw = root / "sys/class/hwmon/hwmon1"
     hw.mkdir(parents=True)

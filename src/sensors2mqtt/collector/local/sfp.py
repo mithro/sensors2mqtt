@@ -75,7 +75,8 @@ def probe_sfp_hwmon(sysfs_root: str) -> list[tuple[SensorDef, float]]:
             if raw is None:
                 continue
             try:
-                out.append((_sfp_sensor(prefix, field, f"SFP {cage} {field}".title(), unit, dclass),
+                fname_label = f"SFP {cage.title()} {field.title()}"
+                out.append((_sfp_sensor(prefix, field, fname_label, unit, dclass),
                             round(float(raw) * scale, prec)))
             except ValueError:
                 continue
@@ -85,7 +86,7 @@ def probe_sfp_hwmon(sysfs_root: str) -> list[tuple[SensorDef, float]]:
             if raw is None:
                 continue
             try:
-                name = f"SFP {cage} {field.replace('_', ' ')}".title()
+                name = f"SFP {cage.title()} {field.replace('_', ' ').title()}"
                 out.append((_sfp_sensor(prefix, field, name, "dBm"), _dbm(float(raw))))
             except ValueError:
                 continue
@@ -157,7 +158,7 @@ def probe_sfp_mlxsw(sysfs_root: str, ethtool=run_ethtool) -> list[tuple[SensorDe
             try:
                 out.append((
                     _sfp_sensor(
-                        prefix, "temp", f"SFP Port {port:02d} Temperature", "°C", "temperature"
+                        prefix, "temp", f"SFP Port {port:02d} Temp", "°C", "temperature"
                     ),
                     round(float(traw) * 0.001, 1),
                 ))
@@ -174,6 +175,6 @@ def probe_sfp_mlxsw(sysfs_root: str, ethtool=run_ethtool) -> list[tuple[SensorDe
             ("rx_power", "dBm", None),
         ):
             if field in ddm:
-                name = f"SFP Port {port:02d} {field.replace('_', ' ').upper()}"
+                name = f"SFP Port {port:02d} {field.replace('_', ' ').title()}"
                 out.append((_sfp_sensor(prefix, field, name, unit, dclass), ddm[field]))
     return out
