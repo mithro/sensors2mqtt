@@ -163,7 +163,10 @@ def probe_sfp_mlxsw(sysfs_root: str, ethtool=run_ethtool) -> list[tuple[SensorDe
                 ))
             except ValueError:
                 pass
-        ddm = parse_ethtool_ddm(ethtool(f"swp{port:02d}"))
+        # mlxsw front-panel ports are named swp1..swpN (unpadded).
+        # Exact name/mapping is a live-validation item on sw-bb-25g (no optical
+        # module seated yet); probe degrades to temp-only if the name is wrong.
+        ddm = parse_ethtool_ddm(ethtool(f"swp{port}"))
         for field, unit, dclass in (
             ("vcc", "V", "voltage"),
             ("bias", "mA", "current"),
