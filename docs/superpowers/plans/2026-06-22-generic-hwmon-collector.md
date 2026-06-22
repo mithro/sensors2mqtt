@@ -245,6 +245,7 @@ class ChannelSpec:
     entity_category: str | None = None
     icon: str | None = None
     skip: bool = False
+    diagnostic: bool = True  # generic sensors are diagnostic; False = primary entity
 
 
 @dataclass(frozen=True)
@@ -305,15 +306,14 @@ def _drivetemp_instance(hw: Path) -> str:
 
 
 def _mlxsw_channels() -> dict[str, ChannelSpec]:
-    chans = {"temp1": ChannelSpec(suffix="asic_temp", name="ASIC Temperature")}
+    # The switch's own primary sensors. temp2..temp57 (per-port transceiver
+    # module temps) are intentionally NOT named here: #57 lets them publish
+    # generically as mlxsw_front_panel_0NN; #41 owns proper sfp_portNN naming + DDM.
+    chans = {"temp1": ChannelSpec(suffix="asic_temp", name="ASIC Temperature", diagnostic=False)}
     fan_names = ["Fan 1 Front", "Fan 1 Rear", "Fan 2 Front", "Fan 2 Rear",
                  "Fan 3 Front", "Fan 3 Rear", "Fan 4 Front", "Fan 4 Rear"]
     for i, fname in enumerate(fan_names, start=1):
-        chans[f"fan{i}"] = ChannelSpec(suffix=f"fan{i}_rpm", name=fname)
-    for n in range(2, 58):  # temp2..temp57 -> SFP front-panel module temps
-        port = n - 1
-        chans[f"temp{n}"] = ChannelSpec(
-            suffix=f"sfp_port{port:02d}_temp", name=f"SFP Port {port:02d} Temperature")
+        chans[f"fan{i}"] = ChannelSpec(suffix=f"fan{i}_rpm", name=fname, diagnostic=False)
     return chans
 
 
@@ -325,19 +325,20 @@ PERIPHERAL_HWMON: dict[str, DriverSpec] = {
     "ath11k_hwmon": DriverSpec(
         channels={"temp1": ChannelSpec(suffix="wifi_temp", name="WiFi Temperature")}),
     "drivetemp": DriverSpec(instance_id=_drivetemp_instance),
-    # RPi specialization naming (Task 3).
+    # RPi specialization naming (Task 3) - primary (non-diagnostic) sensors.
     "rp1_adc": DriverSpec(channels={
-        "in1": ChannelSpec(suffix="rp1_v1", name="RP1 Voltage 1"),
-        "in2": ChannelSpec(suffix="rp1_v2", name="RP1 Voltage 2"),
-        "in3": ChannelSpec(suffix="rp1_v3", name="RP1 Voltage 3"),
-        "in4": ChannelSpec(suffix="rp1_v4", name="RP1 Voltage 4"),
-        "temp1": ChannelSpec(suffix="rp1_temp", name="RP1 Temperature"),
+        "in1": ChannelSpec(suffix="rp1_v1", name="RP1 Voltage 1", diagnostic=False),
+        "in2": ChannelSpec(suffix="rp1_v2", name="RP1 Voltage 2", diagnostic=False),
+        "in3": ChannelSpec(suffix="rp1_v3", name="RP1 Voltage 3", diagnostic=False),
+        "in4": ChannelSpec(suffix="rp1_v4", name="RP1 Voltage 4", diagnostic=False),
+        "temp1": ChannelSpec(suffix="rp1_temp", name="RP1 Temperature", diagnostic=False),
     }),
     "rpi_volt": DriverSpec(channels={
-        "in0": ChannelSpec(suffix="supply_voltage", name="Supply Voltage")}),
-    # Mellanox specialization naming (Task 4).
-    "mlxsw": DriverSpec(channels=_mlxsw_channels()),
-    "jc42": DriverSpec(channels={"temp1": ChannelSpec(suffix="board_temp", name="Board Temperature")}),
+        "in0": ChannelSpec(suffix="supply_voltage", name="Supply Voltage", diagnostic=False)}),
+    # Mellanox specialization naming (Task 4). instance_id keeps the un-named
+    # per-port module temps generic as mlxsw_front_panel_0NN (for #41 to refine).
+    "mlxsw": DriverSpec(instance_id=lambda hw: "mlxsw", channels=_mlxsw_channels()),
+    "jc42": DriverSpec(channels={"temp1": ChannelSpec(suffix="board_temp", name="Board Temperature", diagnostic=False)}),
 }
 
 
@@ -407,7 +408,7 @@ def discover_hwmon_sensors(sysfs_root: str, taken_suffixes: Iterable[str]) -> li
                     device_class=cspec.device_class or meta.device_class,
                     state_class="measurement",
                     icon=cspec.icon or meta.icon,
-                    entity_category=cspec.entity_category or "diagnostic",
+                    entity_category=cspec.entity_category or ("diagnostic" if cspec.diagnostic else None),
                 ),
                 source=SysfsSource(
                     path=str((hw / f.name).relative_to(root)),
@@ -667,21 +668,25 @@ class TestMellanoxDeviceInfo:
 
 class TestMellanoxSensors:
     def test_preserved_suffixes(self):
-        s = {ls.sensor.suffix for ls in make_mellanox()._sensors_list}
-        assert {"asic_temp", "board_temp"} <= s
-        assert {f"fan{i}_rpm" for i in range(1, 9)} <= s
+        sensors = {ls.sensor.suffix: ls.sensor for ls in make_mellanox()._sensors_list}
+        assert {"asic_temp", "board_temp"} <= set(sensors)
+        assert {f"fan{i}_rpm" for i in range(1, 9)} <= set(sensors)
+        # Preserved primary sensors stay non-diagnostic (continuity with sensors -j).
+        assert sensors["asic_temp"].entity_category is None
+        assert sensors["board_temp"].entity_category is None
 
-    def test_sfp_module_ports(self):
+    def test_front_panel_module_temps_generic(self):
+        # Per-port transceiver temps publish generically; #41 owns sfp_portNN naming + DDM.
         s = {ls.sensor.suffix for ls in make_mellanox()._sensors_list}
-        assert "sfp_port01_temp" in s
-        assert "sfp_port56_temp" in s
+        assert "mlxsw_front_panel_001" in s
+        assert "mlxsw_front_panel_056" in s
 
     def test_poll_reads_from_sysfs(self):
         v = make_mellanox().poll()
         assert v["asic_temp"] == 42.0
         assert v["board_temp"] == round(29375 * 0.001, 1)
         assert v["fan1_rpm"] == 6239
-        assert v["sfp_port01_temp"] == 0.0  # empty cage
+        assert v["mlxsw_front_panel_001"] == 0.0  # empty cage
 
     def test_cpu_temp_from_thermal_zone(self):
         # acpitz thermal zone -> acpitz_temp (not cpu_temp on this box)
@@ -749,7 +754,7 @@ git commit -m "feat(local): refactor Mellanox onto the generic hwmon engine"
 
 ## Self-Review
 
-**Spec coverage:** engine + 5 channel kinds (Task 1) ✓; channel-type scaling + per-driver overrides incl. µV (Task 1) ✓; promote `find_hwmon_by_name` (Tasks 1-2, base delegate Task 3) ✓; wire into `_probe_common_sensors` for all collectors + dedup (Task 3) ✓; thermal-zone overlap incl. name-match fallback (Task 1) ✓; everything/diagnostic (Task 1 defaults) ✓; preserve suffixes/metadata (Tasks 3-4) ✓; Mellanox drops `sensors -j` (Task 4) ✓; RPi keeps vcgencmd + undervoltage (Task 3) ✓; drivetemp wwid id (Task 1) ✓; `sfp_portNN` folds in #41 (Task 1 `_mlxsw_channels` + Task 4 fixture) ✓.
+**Spec coverage:** engine + 5 channel kinds (Task 1) ✓; channel-type scaling + per-driver overrides incl. µV (Task 1) ✓; promote `find_hwmon_by_name` (Tasks 1-2, base delegate Task 3) ✓; wire into `_probe_common_sensors` for all collectors + dedup (Task 3) ✓; thermal-zone overlap incl. name-match fallback (Task 1) ✓; everything/diagnostic (Task 1 defaults) ✓; preserve suffixes/metadata incl. non-diagnostic primaries via `ChannelSpec.diagnostic` (Tasks 1,3-4) ✓; Mellanox drops `sensors -j` (Task 4) ✓; RPi keeps vcgencmd + undervoltage (Task 3) ✓; drivetemp wwid id (Task 1) ✓; per-port module temps publish generically as `mlxsw_front_panel_0NN` — proper SFP naming + full DDM is owned by #41 (separate deep-dive) ✓.
 
 **Out-of-scope (per spec):** #56 ten64 voltage-rail naming + identity; #41 ten64 hot-plug re-probe + DDM curr/power fields; cooling-fan stays in `RpiCollector` (non-standard `/sys/devices/platform/cooling_fan/hwmon` path — a future override could move it, but it is not duplicated because no `cooling_fan` registry entry exists and the existing RPi fixtures carry no fan node).
 

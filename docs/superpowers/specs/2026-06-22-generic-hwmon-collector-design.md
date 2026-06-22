@@ -114,10 +114,11 @@ Precision: temp 1, voltage 3, fan 0, current 3, power 2.
   driver entirely.
 
 **Metadata policy:** generic (un-overridden) channels default to
-`entity_category="diagnostic"`. Override entries reproduce the **existing
-`SensorDef` metadata exactly** (name, units, and a *non*-diagnostic category
-where that is what the device publishes today) so that channels routed through
-the engine during the RPi/Mellanox refactor are unchanged in HA.
+`entity_category="diagnostic"`. `ChannelSpec` carries a `diagnostic: bool = True`
+flag; override entries that reproduce an existing **primary** sensor set
+`diagnostic=False`, so the channel stays non-diagnostic (matching what the
+RPi/Mellanox devices publish today) and HA is unchanged. The engine computes
+`entity_category = cspec.entity_category or ("diagnostic" if cspec.diagnostic else None)`.
 
 A driver with **no** entry is probed with pure channel-type defaults and generic
 naming (below). The override table is the single extension point shared by the
@@ -193,13 +194,17 @@ sensors come from the generic engine via a `mlxsw`/`jc42` override entry that
 |---|---|---|
 | temp1 | `asic_temp` | ASIC Temperature |
 | fan1 / fan2 … fan7 / fan8 | `fan1_rpm` … `fan8_rpm` | Fan 1 Front / Fan 1 Rear … Fan 4 Front / Fan 4 Rear |
-| temp2 … temp57 | `sfp_port01_temp` … `sfp_port56_temp` | SFP Port NN Temperature |
+| temp2 … temp57 | `mlxsw_front_panel_001` … `mlxsw_front_panel_056` *(generic)* | front-panel module temps (→ #41) |
 | jc42 temp1 | `board_temp` | Board Temperature |
 
-`cpu_temp` continues to come from the base thermal-zone probe. `temp2..temp57`
-fold in #41's Mellanox SFP module temps (port N → `temp{N+1}`); they publish 0
-until a DDM-capable optical module is inserted. `coretemp`/`acpitz` on the
-switch publish via the generic path (acpitz `temp1` deduped per §5, `temp2`
+`cpu_temp` continues to come from the base thermal-zone probe; the asic/fan/board
+overrides set `diagnostic=False` (they are the device's primary sensors today).
+The per-port transceiver module temps (`temp2..temp57`) are **not** named here —
+#57 publishes them generically as `mlxsw_front_panel_0NN` (via the mlxsw
+`instance_id="mlxsw"` and the `front panel 0NN` labels). **SFP/transceiver
+monitoring — proper `sfp_portNN` naming plus the full DDM (Vcc/TX/RX power/bias)
+and ten64's `sfp` node — is owned by #41**, a separate deep-dive. `coretemp`/`acpitz`
+on the switch publish via the generic path (acpitz `temp1` deduped per §5, `temp2`
 generic; coretemp generic).
 
 ### 7. RPi refactor
@@ -256,8 +261,9 @@ TDD against fake `sysfs_root` trees built from the captured inventory:
   no-label naming, thermal-backed primary-channel dedup (publishes `temp2+`),
   general dedup-by-suffix.
 - Mellanox fixture from the real sw-bb-25g tree: asserts `asic_temp`,
-  `fan1_rpm`..`fan8_rpm`, `board_temp`, `sfp_port01_temp`..`sfp_port56_temp`
-  exist with the preserved suffixes/names and `sensors -j` is gone.
+  `fan1_rpm`..`fan8_rpm`, `board_temp` exist (preserved suffixes/names,
+  non-diagnostic) and `sensors -j` is gone; the per-port module temps appear
+  generically as `mlxsw_front_panel_001`..`mlxsw_front_panel_056`.
 - RPi fixture: asserts `rp1_v1..rp1_v4`, `rp1_temp`, `supply_voltage`,
   `fan_rpm` preserved (suffix + metadata); vcgencmd + undervoltage still work.
 - A ten64 fixture: asserts emc1704/emc1813 temps + emc2301 fan now appear
@@ -270,9 +276,9 @@ TDD against fake `sysfs_root` trees built from the captured inventory:
 - **#56** (sequenced next): Ten64 specialization — pac1934 ×2 + emc1704 12 V
   rails with meaningful names, and `Traverse Technologies / Ten64` device
   identity. Builds on this engine + `_find_hwmon_by_name`.
-- **#41 residue:** ten64 dynamic hot-plug re-probe (sfp node appears on module
-  insert), the richer SFP DDM fields (Vcc/bias/optical power = curr/power
-  channels), and cage-name mapping on ten64.
+- **#41 (separate deep-dive — owns SFP/transceiver):** proper `sfp_portNN` naming
+  for the Mellanox module temps, the full DDM set (Vcc/TX/RX optical power, laser
+  bias), and ten64's `sfp` hwmon node + dynamic hot-plug re-probe — on both hosts.
 - curr/power channels are supported by the engine but light up only when such
   hardware is present (SFP optics, future power monitors).
 
