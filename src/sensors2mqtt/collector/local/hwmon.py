@@ -123,9 +123,44 @@ def _mlxsw_channels() -> dict[str, ChannelSpec]:
 
 
 PERIPHERAL_HWMON: dict[str, DriverSpec] = {
-    # Voltage scale quirks (microvolts, not the ABI millivolts).
-    "pac1934": DriverSpec(scale={"in": 1e-6}),
-    "emc1704": DriverSpec(scale={"in": 1e-6}),
+    # Traverse Ten64 board sensors (pac1934 × 2, emc1704, emc1813, emc2301).
+    "pac1934": DriverSpec(
+        scale={"in": 1e-6},
+        instance_channels={
+            "0_0011": {
+                "in0": ChannelSpec(suffix="minipcie_p4_3v3", name="miniPCIe P4 3.3V"),
+                "in1": ChannelSpec(suffix="minipcie_p5_3v3", name="miniPCIe P5 3.3V"),
+                "in2": ChannelSpec(suffix="lte_m2b_3v3", name="LTE/M.2B 3.3V"),
+                "in3": ChannelSpec(suffix="rail_5v", name="5V Rail"),
+            },
+            "0_001a": {
+                "in0": ChannelSpec(suffix="ddr_vdd_1v2", name="DDR VDD (1.2V)"),
+                "in1": ChannelSpec(suffix="ddr_vpp_2v5", name="DDR VPP (2.5V)"),
+                "in2": ChannelSpec(suffix="ddr_vtt_0v6", name="DDR VTT (0.6V)"),
+                "in3": ChannelSpec(suffix="ovdd_1v8", name="1.8V (OVDD)"),
+            },
+        },
+    ),
+    "emc1704": DriverSpec(
+        scale={"in": 1e-6},
+        channels={
+            "in0": ChannelSpec(
+                suffix="supply_voltage", name="Supply Voltage (12V)", diagnostic=False),
+            "in1": ChannelSpec(skip=True),
+            "temp0": ChannelSpec(suffix="emc1704_internal_temp", name="EMC1704 Internal Temp"),
+            "temp1": ChannelSpec(suffix="ls1088_die_temp", name="LS1088 Die Temperature"),
+            "temp2": ChannelSpec(suffix="board_temp", name="Board Temperature", diagnostic=False),
+            "temp3": ChannelSpec(skip=True),
+        },
+    ),
+    "emc1813": DriverSpec(channels={
+        "temp1": ChannelSpec(suffix="emc1813_internal_temp", name="PHY Monitor Internal Temp"),
+        "temp2": ChannelSpec(suffix="phy_eth0_3_temp", name="PHY Temp (eth0-eth3)"),
+        "temp3": ChannelSpec(suffix="phy_eth4_7_temp", name="PHY Temp (eth4-eth7)"),
+    }),
+    "emc2301": DriverSpec(channels={
+        "fan1": ChannelSpec(suffix="fan_rpm", name="Fan Speed", diagnostic=False),
+    }),
     # Friendlier names.
     "ath11k_hwmon": DriverSpec(
         channels={"temp1": ChannelSpec(suffix="wifi_temp", name="WiFi Temperature")}),
