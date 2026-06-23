@@ -39,12 +39,21 @@ canned `ethtool` fixtures. No packaging change (the local collector already runs
 
 From the 2026-06-22 spike (see task #41), the two hosts expose DDM differently:
 
-- **ten64** — `fsl_dpaa2_eth` has no EEPROM access (`ethtool -m` unusable). The
-  mainline `sfp` driver creates an hwmon node (`name="sfp"`) **only while a
-  DDM-capable optical module is seated**, exposing the full set: `temp1_input`,
-  `in1_input` (Vcc), `curr1_input` (bias), `power1_input` (TX), `power2_input`
-  (RX). World-readable. Two cages: `eth8`/`dpmac1_sfp`, `eth9`/`dpmac2_sfp`
-  (both empty/passive-DAC today). Node is dynamic → re-probe.
+- **ten64** — the mainline `sfp` driver creates an hwmon node (`name="sfp"`)
+  **only while a DDM-capable optical module is seated**, exposing the full set:
+  `temp1_input`, `in1_input` (Vcc), `curr1_input` (bias), `power1_input` (TX),
+  `power2_input` (RX). World-readable, so #41 reads DDM straight from the hwmon
+  node (no privilege, no parsing). Two cages: `eth8`/`dpmac1_sfp`,
+  `eth9`/`dpmac2_sfp` (both passive-DAC today). Node is dynamic → re-probe.
+  **Correction (2026-06-23, verified on hardware):** an earlier spike note here
+  claimed `fsl_dpaa2_eth` "has no EEPROM access / `ethtool -m` unusable" — that
+  is **wrong**. `sudo ethtool -m eth9` returns the full SFF-8472 page-A0h decode
+  (the cages are driven by phylink + the kernel `sfp` bus, which provides
+  `get_module_eeprom` independent of the dpaa2 MAC driver). DDM still comes from
+  the hwmon node (simpler + unprivileged); the working `ethtool -m` only matters
+  for the static-identity follow-up, which can therefore cover ten64 too.
+  Passive DACs carry only static A0h identity (vendor/PN/SN/length/type) — no
+  A2h DDM, so #41 correctly reports nothing live for them.
 - **sw-bb-25g** (Mellanox SN2410) — `mlxsw` hwmon exposes per-port module
   **temperature only** at `temp2_input`..`temp57_input` (port N → `temp{N+1}`;
   `temp{N}_crit != 0` flags a DDM module). The richer DDM needs `ethtool -m
