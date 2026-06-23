@@ -24,6 +24,12 @@ class MellanoxCollector(LocalCollector):
     def _mac_interfaces(self) -> tuple[str, ...]:
         return ("bmc", "eth0")
 
+    def dynamic_sensors(self) -> list:
+        """Per-poll SFP DDM: mlxsw temp + privileged ethtool -m for the rest."""
+        from sensors2mqtt.collector.local.sfp import probe_sfp_mlxsw
+
+        return probe_sfp_mlxsw(str(self._sysfs_root))
+
     def _log_summary(self, values: dict) -> None:
         log.info(
             "Published: ASIC=%s°C Board=%s°C CPU=%s°C",
