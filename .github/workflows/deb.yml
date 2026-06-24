@@ -8,6 +8,8 @@ jobs:
   build-deb:
     runs-on: ubuntu-latest
     container: debian:trixie
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - name: Install build dependencies
         run: |
@@ -16,7 +18,7 @@ jobs:
             build-essential ca-certificates git \
             dpkg-dev debhelper dh-python pybuild-plugin-pyproject \
             python3-all python3-hatchling python3-hatch-vcs python3-setuptools-scm \
-            python3-paho-mqtt python3-pytest python3-requests
+            python3-paho-mqtt python3-pytest python3-requests python3-ezsnmp
 
       - uses: actions/checkout@v4
         with:
@@ -27,6 +29,10 @@ jobs:
 
       - name: Set changelog version from git
         run: python3 packaging/deb-version.py --write-changelog
+
+      - id: ver
+        name: Capture the built version for the post-publish verify job
+        run: echo "version=$(dpkg-parsechangelog -S Version)" >> "$GITHUB_OUTPUT"
 
       - name: Build packages
         run: dpkg-buildpackage -us -uc
@@ -121,3 +127,44 @@ jobs:
 
       - id: deploy
         uses: actions/deploy-pages@v4
+
+  verify-apt:
+    # Install the just-published version from the live apt repo on a fresh trixie
+    # system and smoke test it. Pins to the EXACT just-built version and waits for
+    # it to appear, so a slow Pages deploy cannot let us test a stale package.
+    needs: [build-deb, publish-apt]
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    steps:
+      - name: Base tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git python3-pip
+      - uses: actions/checkout@v4  # for the snmprec fixtures + smoke_test.py
+      - name: Trust repo directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Install the just-published version from the apt repo (wait for it)
+        env:
+          VERSION: ${{ needs.build-deb.outputs.version }}
+        run: |
+          # [trusted=yes]: functional smoke test, not a signature test — must pass
+          # whether or not the repo was GPG-signed.
+          echo "deb [trusted=yes] https://mithro.github.io/sensors2mqtt/ ./" \
+            > /etc/apt/sources.list.d/sensors2mqtt.list
+          echo "waiting for sensors2mqtt $VERSION to appear in the apt repo"
+          ok=
+          for i in $(seq 1 20); do
+            apt-get update || true
+            # Pin to the just-built version so a stale repo snapshot cannot pass.
+            if apt-get install -y --no-install-recommends \
+                 "sensors2mqtt-snmp=$VERSION" "sensors2mqtt-snmp-control=$VERSION"; then
+              ok=1; break
+            fi
+            echo "attempt $i: $VERSION not in the apt repo yet, retrying in 20s"; sleep 20
+          done
+          test -n "$ok" || { echo "sensors2mqtt $VERSION never appeared in the apt repo"; exit 1; }
+          dpkg -s python3-sensors2mqtt | grep '^Version:'
+      - name: snmpsim for the smoke test
+        run: pip install --break-system-packages snmpsim-lextudio
+      - name: Smoke test the installed Debian packages
+        run: python3 packaging/smoke_test.py

@@ -82,7 +82,9 @@ uv run python -m sensors2mqtt.collector.ipmi_sensors
   columns, not hardcoded per instance — indexing varies by model (M4300
   uses unit.fan like "1.0"; GSM7252PS uses bare "0"/"2" with a literal
   "Not Supported" placeholder, and has 4 PSU rails)
-- SNMP uses subprocess `snmpget`/`snmpwalk` (not pysnmp) for simplicity
+- SNMP runs in-process via the `ezsnmp` net-snmp binding (v2c) behind a
+  `SnmpClient` seam (`snmp_client.py`) — not subprocess CLI tools
+  (`snmpget`/`snmpwalk`/`snmpset`) or pysnmp; deployed as Debian `python3-ezsnmp`
 - Each collector is a `__main__.py`-style module runnable with `python -m`
 - paho-mqtt v2 API (CallbackAPIVersion.VERSION2)
 - Environment variables for MQTT connection (no config files)

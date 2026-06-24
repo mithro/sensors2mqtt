@@ -10,12 +10,22 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # full history for hatch-vcs
       - uses: astral-sh/setup-uv@v6
       - run: uv build
+      - id: ver
+        # Derive the published version from the built wheel filename
+        # (sensors2mqtt-<version>-py3-none-any.whl) for the post-publish verify.
+        run: |
+          whl=$(basename dist/sensors2mqtt-*-py3-none-any.whl)
+          version=${whl#sensors2mqtt-}
+          version=${version%-py3-none-any.whl}
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
           name: dist
@@ -31,3 +41,39 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  verify-pypi:
+    # Install the just-published release from PyPI on a clean runner and smoke
+    # test it — catches broken metadata, a missing dependency, or an
+    # unimportable upload that building locally would not reveal.
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4  # for the snmprec fixtures + smoke_test.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: net-snmp build prereqs (the ezsnmp dependency may build from sdist)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsnmp-dev build-essential
+      - name: Install published sensors2mqtt[snmp] from PyPI (retry for index propagation)
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          python -m venv .verify-venv
+          . .verify-venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install snmpsim-lextudio
+          echo "waiting for sensors2mqtt ${VERSION} to appear on PyPI"
+          ok=
+          # The ==VERSION pin means this only succeeds once the exact just-published
+          # release is fetchable, so the retry waits for the correct version.
+          for i in $(seq 1 12); do
+            if pip install "sensors2mqtt[snmp]==${VERSION}"; then ok=1; break; fi
+            echo "attempt $i: ${VERSION} not on PyPI yet, retrying in 20s"; sleep 20
+          done
+          test -n "$ok" || { echo "sensors2mqtt ${VERSION} never became installable from PyPI"; exit 1; }
+          python -c "import sensors2mqtt; assert sensors2mqtt.__version__ == '${VERSION}', sensors2mqtt.__version__"
+      - name: Smoke test the installed PyPI package
+        run: |
+          . .verify-venv/bin/activate
+          python packaging/smoke_test.py
