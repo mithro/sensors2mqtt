@@ -4,7 +4,7 @@
 # to match your network.
 #
 # Each switch needs a model (defines which OIDs to poll) and connection details.
-# Known models: m4300, gsm7252ps, s3300
+# Known models: m4300, m4300-16x, gsm7252ps, s3300
 #
 # The switch name (TOML key) should match the DNS hostname.
 # It becomes both the HA device name and the MQTT node_id (hyphens -> underscores).
@@ -16,6 +16,12 @@
 model = "m4300"
 host = "my-m4300-switch.example.com"
 community = "public"
+
+# [switches.my-m4300-16x-switch]
+# model = "m4300-16x"
+# host = "my-m4300-16x-switch.example.com"
+# community = "public"
+# write_community = "private"   # needed for PoE control
 
 # [switches.my-gsm7252ps-switch]
 # model = "gsm7252ps"

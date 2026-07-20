@@ -245,6 +245,14 @@ MODELS: dict[str, SwitchModel] = {
         poe_port_count=0,
         box_walks=_box_walks(_FM_BOX),
     ),
+    "m4300-16x": SwitchModel(
+        manufacturer="Netgear",
+        model="M4300-16X",
+        port_count=16,
+        poe_port_count=16,
+        box_walks=_box_walks(_FM_BOX),
+        walk_sensors=_poe_walk(_FM_POE),
+    ),
     "gsm7252ps": SwitchModel(
         manufacturer="Netgear",
         model="GSM7252PS",
