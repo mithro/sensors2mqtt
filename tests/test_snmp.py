@@ -300,6 +300,21 @@ class TestModelDefinitions:
         for box in m.box_walks:
             assert ".4526.10." in box.base_oid
 
+    def test_m4300_16x_model(self):
+        """M4300-16X: 16×10GBASE-T ports, all PoE+, Fully Managed (4526.10)."""
+        m = MODELS["m4300-16x"]
+        assert m.manufacturer == "Netgear"
+        assert m.model == "M4300-16X"
+        assert m.port_count == 16
+        assert m.poe_port_count == 16
+        assert {b.kind for b in m.box_walks} == {"fan", "temp", "psu_power"}
+        assert len(m.walk_sensors) >= 1
+        assert "poe" in m.walk_sensors[0].suffix_template
+        for box in m.box_walks:
+            assert ".4526.10." in box.base_oid
+        for walk in m.walk_sensors:
+            assert ".4526.10." in walk.base_oid
+
 
 class TestConfigLoading:
     @pytest.fixture(autouse=True)
