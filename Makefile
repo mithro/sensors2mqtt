@@ -29,41 +29,11 @@ fmt: $(VENV)/.stamp ## Auto-format code
 	$(VENV_BIN)/ruff format src/ tests/
 	$(VENV_BIN)/ruff check --fix src/ tests/
 
-INSTALL_DIR := /opt/sensors2mqtt
-CONFIG_DIR := /etc/sensors2mqtt
-SYSTEMD_DIR := /etc/systemd/system
-
-# Shared install step: create venv + install package + create config dir
-.PHONY: _install-base
-_install-base:
-	sudo uv venv $(INSTALL_DIR)
-	sudo uv pip install --python $(INSTALL_DIR)/bin/python .
-	sudo mkdir -p $(CONFIG_DIR)
-
-# Helper: install + enable a systemd service
-# Usage: $(call install-service,service-name)
-define install-service
-	sudo cp deploy/$(1).service $(SYSTEMD_DIR)/$(1).service
-	sudo systemctl daemon-reload
-	sudo systemctl enable $(1)
-	sudo systemctl restart $(1)
-	@echo "$(1) installed and started"
-endef
-
-.PHONY: install-snmp
-install-snmp: _install-base ## Install SNMP collector + PoE control service (ten64)
-	sudo cp snmp.toml $(CONFIG_DIR)/snmp.toml
-	$(call install-service,sensors2mqtt-snmp)
-	$(call install-service,sensors2mqtt-snmp-control)
-
-.PHONY: install-local
-install-local: _install-base ## Install local sensor collector (RPi, Mellanox, etc.)
-	$(call install-service,sensors2mqtt-local)
-
-.PHONY: install-ipmi
-install-ipmi: _install-base ## Install IPMI sensor collector (big-storage)
-	$(call install-service,sensors2mqtt-ipmi-sensors)
-
+# Production installs are the Debian packages (see README "Install");
+# the fleet is converged by the ansible `sensors2mqtt` role. The old
+# `make install-*` targets that built a uv venv under /opt/sensors2mqtt
+# were removed 2026-08-28 — that layout was orphaned by every python3.N
+# removal and had been superseded by the debs since 0.3.
 .PHONY: clean
 clean: ## Remove virtualenv
 	rm -rf $(VENV)

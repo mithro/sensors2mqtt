@@ -8,8 +8,11 @@ Assistant. This lets a user change which VLAN a port belongs to from the HA UI.
 
 ## Repository
 
-`~/github/mithro/sensors2mqtt` — Python package installed at `/opt/sensors2mqtt/`
-on each host. Services managed via systemd.
+`~/github/mithro/sensors2mqtt` — installed on each host as Debian packages
+(`python3-sensors2mqtt` + `sensors2mqtt-<collector>` service packages from the
+fleet apt repo; ansible `sensors2mqtt` role). Units run
+`/usr/bin/python3 -m sensors2mqtt.collector.<name>`; the old `/opt/sensors2mqtt`
+venv layout is gone.
 
 ## What Already Exists
 
