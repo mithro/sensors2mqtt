@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from importlib.metadata import version
 
 import paho.mqtt.client as mqtt
+
+from sensors2mqtt import __version__
 
 DISCOVERY_PREFIX = "homeassistant"
 
@@ -22,7 +23,7 @@ EXPIRE_AFTER = 300
 
 ORIGIN = {
     "name": "sensors2mqtt",
-    "sw": version("sensors2mqtt"),
+    "sw": __version__,
     "url": "https://github.com/mithro/sensors2mqtt",
 }
 

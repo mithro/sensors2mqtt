@@ -14,6 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 ipmi = ["requests"]
+snmp = ["ezsnmp~=1.1"]
 docs = [
     "sphinx",
     "myst-parser",
@@ -40,6 +41,9 @@ packages = ["src/sensors2mqtt"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "integration: real-library tests needing ezsnmp + a local snmpsim agent",
+]
 
 [tool.ruff]
 src = ["src", "tests"]
@@ -53,4 +57,5 @@ select = ["E", "F", "W", "I"]
 dev = [
     "pytest",
     "ruff",
+    "snmpsim-lextudio",
 ]

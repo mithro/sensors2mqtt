@@ -2,6 +2,7 @@
 
 export SETUPTOOLS_SCM_PRETEND_VERSION = $(shell dpkg-parsechangelog -SVersion | sed 's/-.*//')
 export PYBUILD_TEST_PYTEST = 1
+export PYBUILD_TEST_ARGS = -m "not integration"
 
 %:
 	dh $@ --with python3 --buildsystem=pybuild

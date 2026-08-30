@@ -16,5 +16,45 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv python install ${{ matrix.python-version }}
       - run: uv sync --dev --extra ipmi --python ${{ matrix.python-version }}
-      - run: uv run pytest -v
+      - run: uv run pytest -v -m "not integration"
       - run: uv run ruff check
+
+  integration:
+    # Exercise the real-ezsnmp integration tier two independent ways: against the
+    # Debian python3-ezsnmp package (the deployed fleet artifact) and against a
+    # pip-installed ezsnmp built from source. A regression in either path fails.
+    name: integration (${{ matrix.ezsnmp }} ezsnmp)
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    strategy:
+      fail-fast: false
+      matrix:
+        ezsnmp: [apt, pip]
+    steps:
+      - name: Common test deps
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            python3 python3-paho-mqtt python3-pytest python3-pip git
+          # snmpsim from pip: the conftest expects `snmpsim-command-responder`
+          # (snmpsim-lextudio); trixie's apt `snmpsim` (0.4.5) ships a different
+          # command name.
+          pip install --break-system-packages snmpsim-lextudio
+
+      - name: ezsnmp from the Debian package (deployed artifact)
+        if: matrix.ezsnmp == 'apt'
+        run: apt-get install -y --no-install-recommends python3-ezsnmp
+
+      - name: ezsnmp from PyPI (compiled from source)
+        if: matrix.ezsnmp == 'pip'
+        run: |
+          # libsnmp-dev provides the net-snmp headers + net-snmp-config; python3-dev
+          # provides Python.h; build-essential provides the compiler.
+          apt-get install -y --no-install-recommends libsnmp-dev build-essential python3-dev
+          pip install --break-system-packages 'ezsnmp~=1.1'
+
+      - uses: actions/checkout@v4
+      - name: Trust repo directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Run integration tests (real ezsnmp + snmpsim)
+        run: PYTHONPATH=src python3 -m pytest tests/integration -m integration -v

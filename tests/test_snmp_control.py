@@ -1,9 +1,11 @@
 """Tests for PoE control service."""
 
 import json
-import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+sys.path.insert(0, str(Path(__file__).parent))
 from sensors2mqtt.base import MqttConfig
 from sensors2mqtt.collector.snmp import MODELS, SwitchConfig
 from sensors2mqtt.collector.snmp_control import (
@@ -14,6 +16,10 @@ from sensors2mqtt.collector.snmp_control import (
     PoeController,
     PortControlState,
 )
+from sensors2mqtt.snmp_client import SnmpRow
+from snmp_helpers import FakeSnmpClient, rows_from_snmpwalk_txt
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def _make_switch(name: str, model_name: str, write_community: str | None = None) -> SwitchConfig:
@@ -34,15 +40,26 @@ def _make_switch(name: str, model_name: str, write_community: str | None = None)
     )
 
 
+def controller_with(switches, *, walk_rows=None, get_rows=None, set_ok=True, fakes=None):
+    """Build a PoeController with an injected FakeSnmpClient and a mock MQTT client."""
+    cfg = MqttConfig(host="test", port=1883, user="u", password="p")
+    fake = FakeSnmpClient(walk_rows=walk_rows or {}, get_rows=get_rows or {}, set_ok=set_ok)
+    ctrl = PoeController(
+        mqtt_config=cfg,
+        switches=switches,
+        client_factory=lambda sw: (fakes or {}).get(sw.node_id, fake),
+    )
+    ctrl._mqtt_client = MagicMock()
+    return ctrl, fake
+
+
 def _make_controller(switches=None):
-    """Helper to build a PoeController with mock MQTT."""
+    """Helper to build a PoeController with mock MQTT and a default FakeSnmpClient."""
     if switches is None:
         switches = [
             _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private"),
         ]
-    config = MqttConfig(host="test", port=1883, user="u", password="p")
-    ctrl = PoeController(mqtt_config=config, switches=switches)
-    ctrl._client = MagicMock()
+    ctrl, _ = controller_with(switches)
     return ctrl
 
 
@@ -116,7 +133,7 @@ class TestConnectionAvailability:
         sw = ctrl.switches[0]
         ctrl.publish_discovery(sw)
         toggles = [
-            json.loads(c.args[1]) for c in ctrl._client.publish.call_args_list
+            json.loads(c.args[1]) for c in ctrl._mqtt_client.publish.call_args_list
             if "poe_toggle/config" in c.args[0]
         ]
         assert toggles
@@ -133,7 +150,7 @@ class TestConnectionAvailability:
         sw = ctrl.switches[0]
         ctrl.publish_discovery(sw)
         forces = [
-            json.loads(c.args[1]) for c in ctrl._client.publish.call_args_list
+            json.loads(c.args[1]) for c in ctrl._mqtt_client.publish.call_args_list
             if "poe_force/config" in c.args[0]
         ]
         assert forces
@@ -236,58 +253,118 @@ class TestControllerInit:
 # ---------------------------------------------------------------------------
 
 class TestSnmpHelpers:
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_snmpget_int(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="iso.3.6.1... = INTEGER: 1\n", stderr="",
-        )
-        ctrl = _make_controller()
-        sw = ctrl.switches[0]
+    def test_snmpget_int(self):
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        admin_row = SnmpRow("1.3.6.1.2.1.105.1.1.1.3.1.5", "1", "INTEGER")
+        ctrl, fake = controller_with([sw], get_rows={
+            f"{POE_ADMIN_OID}.5": admin_row,
+        })
         result = ctrl._snmpget_int(sw, POE_ADMIN_OID, 5)
         assert result == 1
-        mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert "snmpget" in args[0]
-        assert f"{POE_ADMIN_OID}.5" in args
 
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_snmpget_int_failure(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Timeout")
-        ctrl = _make_controller()
-        sw = ctrl.switches[0]
+    def test_snmpget_int_missing_oid(self):
+        """A missing OID returns None."""
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        ctrl, fake = controller_with([sw], get_rows={})
         result = ctrl._snmpget_int(sw, POE_ADMIN_OID, 5)
         assert result is None
 
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_snmpget_int_timeout(self, mock_run):
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd="snmpget", timeout=10)
-        ctrl = _make_controller()
-        sw = ctrl.switches[0]
+    def test_snmpget_int_snmp_error(self):
+        """SnmpError raised by client returns None."""
+        from sensors2mqtt.snmp_client import SnmpError
+
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        ctrl, _ = controller_with([sw])
+
+        class ErrorFake(FakeSnmpClient):
+            def get(self, oid):
+                raise SnmpError("timeout")
+
+        ctrl._clients[sw.node_id] = ErrorFake()
         result = ctrl._snmpget_int(sw, POE_ADMIN_OID, 5)
         assert result is None
 
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_snmpset_int_success(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
-        ctrl = _make_controller()
-        sw = ctrl.switches[0]
+    def test_snmpset_int_success(self):
+        """set_int called with correct OID and value; returns True."""
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        ctrl, fake = controller_with([sw], set_ok=True)
         result = ctrl._snmpset_int(sw, POE_ADMIN_OID, 5, 2)
         assert result is True
-        args = mock_run.call_args[0][0]
-        assert "snmpset" in args[0]
-        assert "-c" in args
-        assert "private" in args  # write_community
-        assert f"{POE_ADMIN_OID}.5" in args
-        assert "i" in args
-        assert "2" in args
+        assert (f"{POE_ADMIN_OID}.5", 2) in fake.sets
 
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_snmpset_int_failure(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Error")
-        ctrl = _make_controller()
-        sw = ctrl.switches[0]
+    def test_snmpset_int_failure(self):
+        """set_int returns False → _snmpset_int returns False."""
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        ctrl, fake = controller_with([sw], set_ok=False)
         result = ctrl._snmpset_int(sw, POE_ADMIN_OID, 5, 1)
         assert result is False
+
+    def test_snmpset_int_snmp_error(self):
+        """SnmpError raised by client.set_int returns False."""
+        from sensors2mqtt.snmp_client import SnmpError
+
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        ctrl, _ = controller_with([sw])
+
+        class ErrorFake(FakeSnmpClient):
+            def set_int(self, oid, value):
+                raise SnmpError("timeout")
+
+        ctrl._clients[sw.node_id] = ErrorFake()
+        result = ctrl._snmpset_int(sw, POE_ADMIN_OID, 5, 1)
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# poll_all_ports tests
+# ---------------------------------------------------------------------------
+
+class TestPollAllPorts:
+    def test_poll_all_ports_sets_state(self):
+        """poll_all_ports populates port state from walk rows."""
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        admin = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_gsm7252ps_poe_admin.txt").read_text()
+        )
+        detect = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_gsm7252ps_poe_detect.txt").read_text()
+        )
+        oper = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_gsm7252ps_ifoperstatus.txt").read_text()
+        )
+        ctrl, _ = controller_with([sw], walk_rows={
+            "105.1.1.1.3.1": admin, "105.1.1.1.6.1": detect, "2.2.1.8": oper,
+        })
+        ctrl.poll_all_ports(sw)
+        st = ctrl._port_states[sw.node_id][1]
+        assert st.poe_admin in (1, 2)
+
+    def test_poll_all_ports_ignores_out_of_range_ports(self):
+        """Port indices outside [1, poe_port_count] are ignored."""
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        # The ifoperstatus fixture has ports > 52; those should be silently ignored
+        oper = rows_from_snmpwalk_txt(
+            (FIXTURES / "snmpwalk_gsm7252ps_ifoperstatus.txt").read_text()
+        )
+        ctrl, _ = controller_with([sw], walk_rows={"2.2.1.8": oper})
+        ctrl.poll_all_ports(sw)
+        # No exception; port 417+ should not have been set
+        assert 417 not in ctrl._port_states[sw.node_id]
+
+    def test_poll_all_ports_walk_error_continues(self):
+        """SnmpError on a walk OID is logged and skipped; other OIDs still run."""
+
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        admin = rows_from_snmpwalk_txt((FIXTURES / "snmpwalk_gsm7252ps_poe_admin.txt").read_text())
+        ctrl, _ = controller_with([sw], walk_rows={"105.1.1.1.3.1": admin},
+                                  fakes={sw.node_id: FakeSnmpClient(
+                                      walk_rows={"105.1.1.1.3.1": admin},
+                                      walk_error=["105.1.1.1.6.1", "2.2.1.8"],
+                                  )})
+        # Should not raise
+        ctrl.poll_all_ports(sw)
+        # poe_admin should be set from the first walk that succeeded
+        assert ctrl._port_states[sw.node_id][1].poe_admin in (1, 2)
 
 
 # ---------------------------------------------------------------------------
@@ -301,68 +378,79 @@ class TestToggleMapping:
     Getting this backwards would disable PoE when the user wants to enable it.
     """
 
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_on_maps_to_1(self, mock_run):
-        """ON → snmpset ... i 1 (enable PoE)."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="iso.3.6.1... = INTEGER: 1\n", stderr="",
-        )
-        ctrl = _make_controller()
-        sw = ctrl.switches[0]
+    def test_on_maps_to_1(self):
+        """ON → set_int with value 1 (enable PoE)."""
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        admin_row = SnmpRow(f"{POE_ADMIN_OID}.1", "1", "INTEGER")
+        detect_row = SnmpRow(f"{POE_DETECT_OID}.1", "3", "INTEGER")
+        oper_row = SnmpRow(f"{IF_OPER_OID}.1", "1", "INTEGER")
+        ctrl, fake = controller_with([sw], set_ok=True, get_rows={
+            f"{POE_ADMIN_OID}.1": admin_row,
+            f"{POE_DETECT_OID}.1": detect_row,
+            f"{IF_OPER_OID}.1": oper_row,
+        })
         ctrl._handle_toggle(sw, 1, "ON")
+        # First set call must be the toggle SET with value 1
+        assert len(fake.sets) >= 1
+        assert fake.sets[0] == (f"{POE_ADMIN_OID}.1", 1)
 
-        # First call is snmpset (toggle), second+ are snmpget (verify)
-        set_call = mock_run.call_args_list[0]
-        args = set_call[0][0]
-        assert "snmpset" in args[0]
-        assert "i" in args
-        assert "1" in args  # enable
-
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_off_maps_to_2(self, mock_run):
-        """OFF → snmpset ... i 2 (disable PoE)."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="iso.3.6.1... = INTEGER: 2\n", stderr="",
-        )
-        ctrl = _make_controller()
-        sw = ctrl.switches[0]
+    def test_off_maps_to_2(self):
+        """OFF → set_int with value 2 (disable PoE)."""
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        admin_row = SnmpRow(f"{POE_ADMIN_OID}.1", "2", "INTEGER")
+        detect_row = SnmpRow(f"{POE_DETECT_OID}.1", "1", "INTEGER")
+        oper_row = SnmpRow(f"{IF_OPER_OID}.1", "2", "INTEGER")
+        ctrl, fake = controller_with([sw], set_ok=True, get_rows={
+            f"{POE_ADMIN_OID}.1": admin_row,
+            f"{POE_DETECT_OID}.1": detect_row,
+            f"{IF_OPER_OID}.1": oper_row,
+        })
         ctrl._handle_toggle(sw, 1, "OFF")
+        assert len(fake.sets) >= 1
+        assert fake.sets[0] == (f"{POE_ADMIN_OID}.1", 2)
 
-        set_call = mock_run.call_args_list[0]
-        args = set_call[0][0]
-        assert "snmpset" in args[0]
-        assert "i" in args
-        assert "2" in args  # disable
-
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_invalid_payload_ignored(self, mock_run):
-        """Invalid payload doesn't trigger snmpset."""
-        ctrl = _make_controller()
-        sw = ctrl.switches[0]
+    def test_invalid_payload_ignored(self):
+        """Invalid payload doesn't trigger set_int."""
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        ctrl, fake = controller_with([sw])
         ctrl._handle_toggle(sw, 1, "INVALID")
-        mock_run.assert_not_called()
+        assert fake.sets == []
 
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_busy_port_ignored(self, mock_run):
+    def test_busy_port_ignored(self):
         """Busy port ignores toggle commands."""
-        ctrl = _make_controller()
-        sw = ctrl.switches[0]
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        ctrl, fake = controller_with([sw])
         ctrl._port_states[sw.node_id][1].busy = True
         ctrl._handle_toggle(sw, 1, "ON")
-        mock_run.assert_not_called()
+        assert fake.sets == []
 
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_toggle_publishes_state(self, mock_run):
+    def test_handle_toggle_sets_via_client(self):
+        """_handle_toggle calls set_int on the correct OID with the right value."""
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        admin_row = SnmpRow("1.3.6.1.2.1.105.1.1.1.3.1.1", "1", "INTEGER")
+        detect_row = SnmpRow("1.3.6.1.2.1.105.1.1.1.6.1.1", "3", "INTEGER")
+        oper_row = SnmpRow("1.3.6.1.2.1.2.2.1.8.1", "1", "INTEGER")
+        ctrl, fake = controller_with([sw], get_rows={
+            "105.1.1.1.3.1.1": admin_row, "105.1.1.1.6.1.1": detect_row, "2.2.1.8.1": oper_row,
+        })
+        ctrl._handle_toggle(sw, 1, "ON")
+        assert (f"{POE_ADMIN_OID}.1", 1) in fake.sets
+
+    def test_toggle_publishes_state(self):
         """Toggle publishes confirmed state after verification."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="iso.3.6.1... = INTEGER: 1\n", stderr="",
-        )
-        ctrl = _make_controller()
-        sw = ctrl.switches[0]
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        admin_row = SnmpRow(f"{POE_ADMIN_OID}.1", "1", "INTEGER")
+        detect_row = SnmpRow(f"{POE_DETECT_OID}.1", "3", "INTEGER")
+        oper_row = SnmpRow(f"{IF_OPER_OID}.1", "1", "INTEGER")
+        ctrl, fake = controller_with([sw], set_ok=True, get_rows={
+            f"{POE_ADMIN_OID}.1": admin_row,
+            f"{POE_DETECT_OID}.1": detect_row,
+            f"{IF_OPER_OID}.1": oper_row,
+        })
         ctrl._handle_toggle(sw, 1, "ON")
 
         # Should have published PoE state via MQTT
-        publish_calls = ctrl._client.publish.call_args_list
+        publish_calls = ctrl._mqtt_client.publish.call_args_list
         state_calls = [c for c in publish_calls if "/poe/state" in str(c)]
         assert len(state_calls) >= 1
 
@@ -379,7 +467,7 @@ class TestForceOverride:
         assert ctrl._port_states[sw.node_id][1].force_override is True
 
         # Should publish retained force state
-        publish_calls = ctrl._client.publish.call_args_list
+        publish_calls = ctrl._mqtt_client.publish.call_args_list
         force_calls = [c for c in publish_calls if "/poe/force/state" in str(c)]
         assert len(force_calls) >= 1
         # Check retained
@@ -410,7 +498,7 @@ class TestAvailability:
 
         ctrl.publish_availability(sw)
 
-        calls = ctrl._client.publish.call_args_list
+        calls = ctrl._mqtt_client.publish.call_args_list
         # Find port 01 and 02 availability
         p01_calls = [c for c in calls if "port/01/poe/available" in str(c)]
         p02_calls = [c for c in calls if "port/02/poe/available" in str(c)]
@@ -438,7 +526,7 @@ class TestDiscovery:
         sw = ctrl.switches[0]
         ctrl.publish_discovery(sw)
 
-        calls = ctrl._client.publish.call_args_list
+        calls = ctrl._mqtt_client.publish.call_args_list
         topics = [c[0][0] for c in calls]
 
         # Check port 01 has all three entity types
@@ -452,7 +540,7 @@ class TestDiscovery:
         sw = ctrl.switches[0]
         ctrl.publish_discovery(sw)
 
-        calls = ctrl._client.publish.call_args_list
+        calls = ctrl._mqtt_client.publish.call_args_list
         toggle_calls = [c for c in calls if "poe_toggle" in str(c[0][0])]
         assert len(toggle_calls) > 0
 
@@ -473,7 +561,7 @@ class TestDiscovery:
         sw = ctrl.switches[0]
         ctrl.publish_discovery(sw)
 
-        calls = ctrl._client.publish.call_args_list
+        calls = ctrl._mqtt_client.publish.call_args_list
         cycle_calls = [c for c in calls if "poe_cycle" in str(c[0][0])]
         assert len(cycle_calls) > 0
 
@@ -488,7 +576,7 @@ class TestDiscovery:
         sw = ctrl.switches[0]
         ctrl.publish_discovery(sw)
 
-        calls = ctrl._client.publish.call_args_list
+        calls = ctrl._mqtt_client.publish.call_args_list
         force_calls = [c for c in calls if "poe_force" in str(c[0][0])]
         assert len(force_calls) > 0
 
@@ -503,7 +591,7 @@ class TestDiscovery:
         sw = ctrl.switches[0]
         ctrl.publish_discovery(sw)
 
-        calls = ctrl._client.publish.call_args_list
+        calls = ctrl._mqtt_client.publish.call_args_list
         for c in calls:
             # paho publish(topic, payload, qos, retain) — retain is keyword arg
             retain = c[1].get("retain", False)
@@ -515,7 +603,7 @@ class TestDiscovery:
         sw = ctrl.switches[0]
         ctrl.publish_discovery(sw)
 
-        calls = ctrl._client.publish.call_args_list
+        calls = ctrl._mqtt_client.publish.call_args_list
         toggle_calls = [c for c in calls if "poe_toggle" in str(c[0][0])]
         payload = json.loads(toggle_calls[0][0][1])
 
@@ -540,7 +628,7 @@ class TestMessageRouting:
         msg.topic = f"sensors2mqtt/{sw.node_id}/port/01/poe/set"
         msg.payload = b"ON"
 
-        ctrl._on_message(ctrl._client, None, msg)
+        ctrl._on_message(ctrl._mqtt_client, None, msg)
         ctrl._executor.submit.assert_called_once()
         args = ctrl._executor.submit.call_args[0]
         assert args[0] == ctrl._handle_toggle
@@ -557,7 +645,7 @@ class TestMessageRouting:
         msg.topic = f"sensors2mqtt/{sw.node_id}/port/05/poe/cycle"
         msg.payload = b"PRESS"
 
-        ctrl._on_message(ctrl._client, None, msg)
+        ctrl._on_message(ctrl._mqtt_client, None, msg)
         ctrl._executor.submit.assert_called_once()
         args = ctrl._executor.submit.call_args[0]
         assert args[0] == ctrl._handle_cycle
@@ -572,7 +660,7 @@ class TestMessageRouting:
         msg.topic = f"sensors2mqtt/{sw.node_id}/port/10/poe/force/set"
         msg.payload = b"ON"
 
-        ctrl._on_message(ctrl._client, None, msg)
+        ctrl._on_message(ctrl._mqtt_client, None, msg)
         ctrl._executor.submit.assert_called_once()
         args = ctrl._executor.submit.call_args[0]
         assert args[0] == ctrl._handle_force
@@ -587,7 +675,7 @@ class TestMessageRouting:
         msg.topic = "sensors2mqtt/unknown_switch/port/01/poe/set"
         msg.payload = b"ON"
 
-        ctrl._on_message(ctrl._client, None, msg)
+        ctrl._on_message(ctrl._mqtt_client, None, msg)
         ctrl._executor.submit.assert_not_called()
 
     def test_invalid_port_ignored(self):
@@ -599,7 +687,7 @@ class TestMessageRouting:
         msg.topic = f"sensors2mqtt/{sw.node_id}/port/99/poe/set"
         msg.payload = b"ON"
 
-        ctrl._on_message(ctrl._client, None, msg)
+        ctrl._on_message(ctrl._mqtt_client, None, msg)
         ctrl._executor.submit.assert_not_called()
 
     def test_unrelated_topic_ignored(self):
@@ -610,7 +698,7 @@ class TestMessageRouting:
         msg.topic = "sensors2mqtt/some_switch/port/01/state"
         msg.payload = b"{}"
 
-        ctrl._on_message(ctrl._client, None, msg)
+        ctrl._on_message(ctrl._mqtt_client, None, msg)
         ctrl._executor.submit.assert_not_called()
 
 
@@ -619,52 +707,54 @@ class TestMessageRouting:
 # ---------------------------------------------------------------------------
 
 class TestPowerCycle:
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_cycle_sequence(self, mock_run):
-        """Power cycle calls: snmpset disable, snmpget polls, snmpset enable, snmpget polls."""
-        # Mock responses: first snmpset (disable) ok, then polls show off, then enable ok,
-        # then polls show delivering
-        call_count = [0]
-        def mock_side_effect(cmd, **kwargs):
-            call_count[0] += 1
-            # snmpset calls return success
-            if "snmpset" in cmd[0]:
-                return MagicMock(returncode=0, stdout="ok\n", stderr="")
-            # snmpget calls — vary based on which OID
-            oid_str = cmd[-1]
-            if POE_DETECT_OID in oid_str:
-                # After disable: return unused (1), then after enable: delivering (3)
-                if call_count[0] < 10:
-                    return MagicMock(returncode=0, stdout="iso... = INTEGER: 1\n", stderr="")
-                return MagicMock(returncode=0, stdout="iso... = INTEGER: 3\n", stderr="")
-            if IF_OPER_OID in oid_str:
-                if call_count[0] < 10:
-                    return MagicMock(returncode=0, stdout="iso... = INTEGER: 2\n", stderr="")
-                return MagicMock(returncode=0, stdout="iso... = INTEGER: 1\n", stderr="")
-            if POE_ADMIN_OID in oid_str:
-                if call_count[0] < 10:
-                    return MagicMock(returncode=0, stdout="iso... = INTEGER: 2\n", stderr="")
-                return MagicMock(returncode=0, stdout="iso... = INTEGER: 1\n", stderr="")
-            return MagicMock(returncode=0, stdout="iso... = INTEGER: 0\n", stderr="")
+    def test_cycle_sequence(self):
+        """Power cycle calls: set disable, poll gets off, set enable, poll gets delivering."""
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
 
-        mock_run.side_effect = mock_side_effect
+        # Provide GET responses that first show off (disabled/down) then delivering
+        call_tracker = {"count": 0}
 
-        ctrl = _make_controller()
-        sw = ctrl.switches[0]
+        class CycleStateFake(FakeSnmpClient):
+            def get(self, oid):
+                call_tracker["count"] += 1
+                n = call_tracker["count"]
+                if POE_DETECT_OID in oid:
+                    # After disable: return unused (1); after enable: delivering (3)
+                    val = "1" if n < 10 else "3"
+                    return SnmpRow(oid, val, "INTEGER")
+                if IF_OPER_OID in oid:
+                    val = "2" if n < 10 else "1"
+                    return SnmpRow(oid, val, "INTEGER")
+                if POE_ADMIN_OID in oid:
+                    val = "2" if n < 10 else "1"
+                    return SnmpRow(oid, val, "INTEGER")
+                return SnmpRow(oid, "0", "INTEGER")
+
+        fake = CycleStateFake(set_ok=True)
+        cfg = MqttConfig(host="test", port=1883, user="u", password="p")
+        ctrl = PoeController(
+            mqtt_config=cfg,
+            switches=[sw],
+            client_factory=lambda s: fake,
+        )
+        ctrl._mqtt_client = MagicMock()
+
         ctrl._handle_cycle(sw, 1)
 
-        # Verify snmpset was called at least twice (disable + enable)
-        set_calls = [c for c in mock_run.call_args_list if "snmpset" in c[0][0][0]]
+        # Verify set_int was called at least twice (disable + enable)
+        set_calls = fake.sets
         assert len(set_calls) >= 2
+        # First set = disable (value 2), second = enable (value 1)
+        assert set_calls[0][1] == 2  # disable
+        assert set_calls[1][1] == 1  # enable
 
-    @patch("sensors2mqtt.collector.snmp_control.subprocess.run")
-    def test_cycle_busy_rejected(self, mock_run):
+    def test_cycle_busy_rejected(self):
         """Busy port rejects cycle command."""
-        ctrl = _make_controller()
-        sw = ctrl.switches[0]
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps", write_community="private")
+        ctrl, fake = controller_with([sw])
         ctrl._port_states[sw.node_id][1].busy = True
         ctrl._handle_cycle(sw, 1)
-        mock_run.assert_not_called()
+        assert fake.sets == []
 
 
 # ---------------------------------------------------------------------------
@@ -678,7 +768,7 @@ class TestDiscoveryShortNames:
         ctrl = _make_controller()
         sw = ctrl.switches[0]
         ctrl.publish_discovery(sw)
-        calls = ctrl._client.publish.call_args_list
+        calls = ctrl._mqtt_client.publish.call_args_list
         toggle_01 = [c for c in calls if "port01_poe_toggle" in str(c[0][0])]
         payload = json.loads(toggle_01[0][0][1])
         assert payload["name"] == "PoE"
@@ -687,7 +777,7 @@ class TestDiscoveryShortNames:
         ctrl = _make_controller()
         sw = ctrl.switches[0]
         ctrl.publish_discovery(sw)
-        calls = ctrl._client.publish.call_args_list
+        calls = ctrl._mqtt_client.publish.call_args_list
         cycle_01 = [c for c in calls if "port01_poe_cycle" in str(c[0][0])]
         payload = json.loads(cycle_01[0][0][1])
         assert payload["name"] == "PoE Cycle"
@@ -696,7 +786,7 @@ class TestDiscoveryShortNames:
         ctrl = _make_controller()
         sw = ctrl.switches[0]
         ctrl.publish_discovery(sw)
-        calls = ctrl._client.publish.call_args_list
+        calls = ctrl._mqtt_client.publish.call_args_list
         force_01 = [c for c in calls if "port01_poe_force" in str(c[0][0])]
         payload = json.loads(force_01[0][0][1])
         assert payload["name"] == "PoE Force"

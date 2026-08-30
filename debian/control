@@ -11,6 +11,7 @@ Build-Depends: debhelper-compat (= 13),
                python3-paho-mqtt,
                python3-pytest,
                python3-requests,
+               python3-ezsnmp,
 Standards-Version: 4.7.0
 Homepage: https://github.com/mithro/sensors2mqtt
 Vcs-Git: https://github.com/mithro/sensors2mqtt.git
@@ -48,7 +49,7 @@ Package: sensors2mqtt-snmp
 Architecture: all
 Depends: python3-sensors2mqtt (= ${binary:Version}),
          python3,
-         snmp,
+         python3-ezsnmp,
          systemd,
          ${misc:Depends}
 Description: sensors2mqtt SNMP collector for Netgear managed switches
@@ -63,7 +64,7 @@ Package: sensors2mqtt-snmp-control
 Architecture: all
 Depends: python3-sensors2mqtt (= ${binary:Version}),
          python3,
-         snmp,
+         python3-ezsnmp,
          systemd,
          ${misc:Depends}
 Description: sensors2mqtt PoE control service for Netgear managed switches
