@@ -3,6 +3,7 @@ name: Debian Packages
 on:
   push:
     branches: [main]
+  pull_request:
 
 permissions:
   contents: read
@@ -53,6 +54,9 @@ jobs:
           if-no-files-found: error
 
   publish-apt:
+    # Build on PRs to validate, but never publish from one: that would
+    # overwrite the live repository with unreviewed packages.
+    if: github.event_name != 'pull_request'
     needs: build-deb
     uses: mithro/apt-repo-action/.github/workflows/publish-apt.yml@main
     with:
