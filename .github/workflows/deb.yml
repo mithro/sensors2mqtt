@@ -21,6 +21,24 @@ jobs:
         suite: [bookworm, trixie, sid]
     container: debian:${{ matrix.suite }}
     steps:
+      # bookworm ships paho-mqtt 1.6.1 and this package needs >= 2, so pull the
+      # backport of Debian's own 2.1.0 source. Signed, and scoped to bookworm:
+      # trixie and sid already have 2.1.0 from Debian.
+      - name: Add the paho-mqtt backport (bookworm only)
+        if: matrix.suite == 'bookworm'
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl gnupg
+          install -d -m0755 /etc/apt/keyrings
+          curl -fsSL https://mith.ro/paho-mqtt-bookworm/paho-mqtt-bookworm.gpg \
+            | gpg --dearmor -o /etc/apt/keyrings/paho-mqtt-bookworm.gpg
+          KEY=/etc/apt/keyrings/paho-mqtt-bookworm.gpg
+          REPO=https://mith.ro/paho-mqtt-bookworm/bookworm/
+          printf 'deb [signed-by=%s] %s ./\n' "$KEY" "$REPO" \
+            > /etc/apt/sources.list.d/paho-mqtt-bookworm.list
+          cat /etc/apt/sources.list.d/paho-mqtt-bookworm.list
+
       - name: Install build dependencies
         run: |
           apt-get update
