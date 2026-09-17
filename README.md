@@ -20,6 +20,21 @@ standalone systemd service on the target host.
 
 ### Debian packages (recommended for production)
 
+The packages come from the signed apt repository at
+<https://mith.ro/sensors2mqtt/>. Each suite (`bookworm/`, `trixie/`, `sid/`) is
+its own flat repository, so the source line must name one and keep the trailing
+`./` -- the repository root carries no `Packages` file:
+
+```bash
+sudo install -d -m0755 /etc/apt/keyrings
+curl -fsSL https://mith.ro/sensors2mqtt/sensors2mqtt.gpg \
+  | sudo tee /etc/apt/keyrings/sensors2mqtt.gpg > /dev/null
+. /etc/os-release                      # $VERSION_CODENAME: bookworm, trixie or sid
+echo "deb [signed-by=/etc/apt/keyrings/sensors2mqtt.gpg] https://mith.ro/sensors2mqtt/$VERSION_CODENAME/ ./" \
+  | sudo tee /etc/apt/sources.list.d/sensors2mqtt.list
+sudo apt update
+```
+
 | Package | Service | Notes |
 |---------|---------|-------|
 | `python3-sensors2mqtt` | *(library)* | Required by all service packages; seeds `/etc/sensors2mqtt/env` |
