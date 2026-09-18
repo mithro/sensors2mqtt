@@ -3,6 +3,7 @@ name: Debian Packages
 on:
   push:
     branches: [main]
+  workflow_dispatch:
   pull_request:
 
 # Least privilege by default: only the publish job below raises this, and only
