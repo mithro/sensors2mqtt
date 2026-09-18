@@ -7,6 +7,18 @@
 Each collector ships as its own Debian binary package. Install only what you need;
 multiple packages can co-exist on the same host.
 
+The packages come from the apt repository at <https://mith.ro/sensors2mqtt/>:
+
+```bash
+sudo install -d -m0755 /etc/apt/keyrings
+curl -fsSL https://mith.ro/sensors2mqtt/sensors2mqtt.gpg \
+  | sudo tee /etc/apt/keyrings/sensors2mqtt.gpg > /dev/null
+. /etc/os-release                      # $VERSION_CODENAME: bookworm, trixie or sid
+echo "deb [signed-by=/etc/apt/keyrings/sensors2mqtt.gpg] https://mith.ro/sensors2mqtt/$VERSION_CODENAME/ ./" \
+  | sudo tee /etc/apt/sources.list.d/sensors2mqtt.list
+sudo apt update
+```
+
 | Package | Installs service as | Notes |
 |---------|---------------------|-------|
 | `python3-sensors2mqtt` | *(library)* | Dependency of all service packages; seeds `/etc/sensors2mqtt/env` |

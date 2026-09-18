@@ -18,7 +18,9 @@ IOT_HOSTS: list[tuple[str, str]] = [
     # Example: ("pi", "rpi5.local"),
 ]
 
-APT_REPO_URL = os.environ.get("APT_REPO_URL", "")
+_APT_REPO_URL = os.environ.get("APT_REPO_URL", "")
+# The per-suite path is appended to this, so it must end in a slash.
+APT_REPO_URL = _APT_REPO_URL.rstrip("/") + "/" if _APT_REPO_URL else ""
 GPG_KEY_URL = f"{APT_REPO_URL}sensors2mqtt.gpg"
 
 
@@ -48,18 +50,25 @@ def deploy_host(user: str, host: str) -> bool:
     if ssh_run(user, host, "dpkg -l sensors2mqtt-local 2>/dev/null | grep -q ^ii"):
         print("  Already installed, upgrading...")
 
-    # Add GPG key (idempotent)
+    # Add GPG key (idempotent). /etc/apt/keyrings does not exist on a
+    # fresh install, so create it first or the write fails.
     ok = ssh_run(
         user, host,
+        "sudo install -d -m0755 /etc/apt/keyrings && "
         f"curl -sf {GPG_KEY_URL} | sudo gpg --yes --dearmor -o /etc/apt/keyrings/sensors2mqtt.gpg"
     )
     if not ok:
         return False
 
-    # Add apt source (idempotent)
+    # Add apt source (idempotent). Each suite is its own FLAT repository
+    # -- <base>/<suite>/ with a trailing "./" -- not a dists/ archive, so
+    # "<base> trixie main" resolves to <base>/dists/trixie/... and 404s.
+    # The suite is the target host's own codename, not always trixie.
     ok = ssh_run(
         user, host,
-        f'echo "deb [signed-by=/etc/apt/keyrings/sensors2mqtt.gpg] {APT_REPO_URL} trixie main"'
+        ". /etc/os-release && "
+        'echo "deb [signed-by=/etc/apt/keyrings/sensors2mqtt.gpg]'
+        f' {APT_REPO_URL}$VERSION_CODENAME/ ./"'
         " | sudo tee /etc/apt/sources.list.d/sensors2mqtt.list"
     )
     if not ok:
