@@ -7,10 +7,7 @@
 Each collector ships as its own Debian binary package. Install only what you need;
 multiple packages can co-exist on the same host.
 
-The packages come from the signed apt repository at
-<https://mith.ro/sensors2mqtt/>. Each suite (`bookworm/`, `trixie/`, `sid/`) is
-its own flat repository, so the source line must name one and keep the trailing
-`./` -- the repository root carries no `Packages` file:
+The packages come from the apt repository at <https://mith.ro/sensors2mqtt/>:
 
 ```bash
 sudo install -d -m0755 /etc/apt/keyrings
