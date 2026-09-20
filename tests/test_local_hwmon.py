@@ -56,16 +56,16 @@ class TestGenericNaming:
         assert s.source.scale == 0.001 and s.source.precision == 1
 
     def test_unlabeled_temps_use_kind_index(self, tmp_path):
-        mk_hwmon(tmp_path, 0, "emc1813", {"temp1_input": "40250", "temp2_input": "53375"},
-                 device="0-004c")
-        out = discover_hwmon_sensors(str(tmp_path), taken_suffixes=set())
-        assert {"0_004c_temp1", "0_004c_temp2"} <= suffixes(out)
+        # 'lm75' is unregistered -> pure generic naming from device basename.
+        mk_hwmon(tmp_path, 0, "lm75", {"temp1_input": "40250", "temp2_input": "53375"},
+                 device="0-0048")
+        assert {"0_0048_temp1", "0_0048_temp2"} <= suffixes(
+            discover_hwmon_sensors(str(tmp_path), set()))
 
     def test_fan_kind_metadata(self, tmp_path):
-        mk_hwmon(tmp_path, 0, "emc2301", {"fan1_input": "4902"}, device="0-002f")
-        s = by_suffix(discover_hwmon_sensors(str(tmp_path), set()), "0_002f_fan1")
-        assert s.sensor.unit == "RPM"
-        assert s.sensor.icon == "mdi:fan"
+        mk_hwmon(tmp_path, 0, "genericfan", {"fan1_input": "4902"}, device="fan0")
+        s = by_suffix(discover_hwmon_sensors(str(tmp_path), set()), "fan0_fan1")
+        assert s.sensor.unit == "RPM" and s.sensor.icon == "mdi:fan"
         assert s.source.scale == 1.0 and s.source.precision == 0
 
     def test_multi_instance_disambiguates(self, tmp_path):
@@ -80,13 +80,15 @@ class TestGenericNaming:
 class TestScaleOverrides:
     def test_pac1934_microvolt_scale(self, tmp_path):
         mk_hwmon(tmp_path, 0, "pac1934", {"in0_input": "3286680"}, device="0-0011")
-        s = by_suffix(discover_hwmon_sensors(str(tmp_path), set()), "0_0011_in0")
+        s = by_suffix(discover_hwmon_sensors(str(tmp_path), set()), "minipcie_p4_3v3")
         assert s.sensor.unit == "V"
-        assert s.source.scale == 1e-6  # microvolts, not the ABI millivolts
+        assert s.source.scale == 1e-6  # microvolts -> 3.29 V
 
     def test_emc1704_microvolt_scale(self, tmp_path):
-        mk_hwmon(tmp_path, 0, "emc1704", {"in0_input": "3286680"}, device="2-0067")
-        s = by_suffix(discover_hwmon_sensors(str(tmp_path), set()), "2_0067_in0")
+        # emc1704 in0 is always mapped to supply_voltage (channels-level override);
+        # the 1e-6 scale still applies regardless of device address.
+        mk_hwmon(tmp_path, 0, "emc1704", {"in0_input": "12046900"}, device="0-0018")
+        s = by_suffix(discover_hwmon_sensors(str(tmp_path), set()), "supply_voltage")
         assert s.sensor.unit == "V"
         assert s.source.scale == 1e-6  # microvolts, like pac1934
 
@@ -145,6 +147,73 @@ class TestDedup:
         mk_hwmon(tmp_path, 0, "nvme", {"temp1_input": "39850"}, device="nvme0",
                  labels={"temp1_label": "Composite"})
         assert discover_hwmon_sensors(str(tmp_path), {"nvme0_composite"}) == []
+
+
+class TestInstanceChannels:
+    def test_same_driver_two_instances_distinct_names(self, tmp_path, monkeypatch):
+        from sensors2mqtt.collector.local import hwmon
+
+        monkeypatch.setitem(hwmon.PERIPHERAL_HWMON, "fakemon", hwmon.DriverSpec(
+            instance_channels={
+                "0_0011": {"in0": hwmon.ChannelSpec(suffix="rail_a", name="Rail A")},
+                "0_0022": {"in0": hwmon.ChannelSpec(suffix="rail_b", name="Rail B")},
+            },
+        ))
+        mk_hwmon(tmp_path, 0, "fakemon", {"in0_input": "1000"}, device="0-0011")
+        mk_hwmon(tmp_path, 1, "fakemon", {"in0_input": "2000"}, device="0-0022")
+        out = suffixes(hwmon.discover_hwmon_sensors(str(tmp_path), set()))
+        assert {"rail_a", "rail_b"} <= out
+
+    def test_instance_channels_fall_through_to_channels(self, tmp_path, monkeypatch):
+        from sensors2mqtt.collector.local import hwmon
+
+        monkeypatch.setitem(hwmon.PERIPHERAL_HWMON, "fakemon2", hwmon.DriverSpec(
+            channels={"temp1": hwmon.ChannelSpec(suffix="generic_temp")},
+            instance_channels={"0_0099": {"temp1": hwmon.ChannelSpec(suffix="special_temp")}},
+        ))
+        mk_hwmon(tmp_path, 0, "fakemon2", {"temp1_input": "40000"}, device="0-0050")
+        out = suffixes(hwmon.discover_hwmon_sensors(str(tmp_path), set()))
+        assert "generic_temp" in out  # no instance match -> falls through to channels
+
+
+class TestTen64Naming:
+    def test_pac1934_two_chips_distinct_rails(self, tmp_path):
+        mk_hwmon(tmp_path, 0, "pac1934",
+                 {"in0_input": "3286680", "in1_input": "3281800",
+                  "in2_input": "3294000", "in3_input": "4881952"}, device="0-0011")
+        mk_hwmon(tmp_path, 1, "pac1934",
+                 {"in0_input": "1199504", "in1_input": "2510272",
+                  "in2_input": "603656", "in3_input": "1832440"}, device="0-001a")
+        s = suffixes(discover_hwmon_sensors(str(tmp_path), set()))
+        assert {"minipcie_p4_3v3", "minipcie_p5_3v3", "lte_m2b_3v3", "rail_5v"} <= s
+        assert {"ddr_vdd_1v2", "ddr_vpp_2v5", "ddr_vtt_0v6", "ovdd_1v8"} <= s
+
+    def test_emc1704_names_and_skips(self, tmp_path):
+        mk_hwmon(tmp_path, 0, "emc1704",
+                 {"in0_input": "12046900", "in1_input": "0",
+                  "temp0_input": "42375", "temp1_input": "65125",
+                  "temp2_input": "34000", "temp3_input": "-128000"}, device="0-0018")
+        out = discover_hwmon_sensors(str(tmp_path), set())
+        s = suffixes(out)
+        assert {"supply_voltage", "ls1088_die_temp", "board_temp",
+                "emc1704_internal_temp"} <= s
+        assert "0_0018_in1" not in s and "0_0018_temp3" not in s  # skipped
+        sv = by_suffix(out, "supply_voltage")
+        assert sv.sensor.entity_category is None  # primary, not diagnostic
+        assert sv.source.scale == 1e-6
+
+    def test_emc1813_phy_temps(self, tmp_path):
+        mk_hwmon(tmp_path, 0, "emc1813",
+                 {"temp1_input": "40250", "temp2_input": "53375", "temp3_input": "43625"},
+                 device="0-004c")
+        s = suffixes(discover_hwmon_sensors(str(tmp_path), set()))
+        assert {"emc1813_internal_temp", "phy_eth0_3_temp", "phy_eth4_7_temp"} <= s
+
+    def test_emc2301_fan(self, tmp_path):
+        mk_hwmon(tmp_path, 0, "emc2301", {"fan1_input": "4902"}, device="0-002f")
+        out = discover_hwmon_sensors(str(tmp_path), set())
+        f = by_suffix(out, "fan_rpm")
+        assert f.sensor.unit == "RPM" and f.sensor.entity_category is None
 
 
 class TestFindHwmon:
