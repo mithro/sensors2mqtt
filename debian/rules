@@ -6,9 +6,22 @@ export PYBUILD_TEST_PYTEST = 1
 %:
 	dh $@ --with python3 --buildsystem=pybuild
 
+# These four daemons cannot run until an admin has written their config
+# (/etc/sensors2mqtt/env, snmp.toml), so --no-start keeps a fresh install from
+# crash-looping a service that has nothing to talk to.
+#
+# --no-start ALONE is not enough, though: it also suppresses the restart on
+# upgrade, and still emits the preinst `deb-systemd-invoke stop`. An upgrade
+# therefore stopped the daemon and never started it again (issue #36).
+#
+# Pairing it with --restart-after-upgrade selects debhelper's
+# postinst-systemd-restartnostart snippet, whose action is `try-restart` -- a
+# no-op on a stopped unit, a restart on a running one -- and drops the preinst
+# stop. That is exactly the split we want: silent on install, restart on
+# upgrade. packaging/check-maintainer-scripts.py asserts this on the built debs.
 override_dh_installsystemd:
-	dh_installsystemd -p sensors2mqtt-snmp --no-start
-	dh_installsystemd -p sensors2mqtt-snmp-control --no-start
-	dh_installsystemd -p sensors2mqtt-local-control --no-start
-	dh_installsystemd -p sensors2mqtt-ipmi-sensors --no-start
+	dh_installsystemd -p sensors2mqtt-snmp --no-start --restart-after-upgrade
+	dh_installsystemd -p sensors2mqtt-snmp-control --no-start --restart-after-upgrade
+	dh_installsystemd -p sensors2mqtt-local-control --no-start --restart-after-upgrade
+	dh_installsystemd -p sensors2mqtt-ipmi-sensors --no-start --restart-after-upgrade
 	dh_installsystemd --remaining-packages
