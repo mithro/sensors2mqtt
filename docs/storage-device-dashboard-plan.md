@@ -48,7 +48,7 @@ Per slot: `/sys/class/enclosure/<encl>/Slot<NN>/`
 
 ## Work Process
 
-- **Repository:** `mithro/sensors2mqtt` (this repo, checked out at `~/local/zigbee/sensors2mqtt`).
+- **Repository:** `mithro/sensors2mqtt` (this repo, checked out at `~/github/mithro/sensors2mqtt`).
 - Work on a **dedicated branch in a git worktree**, not `main`.
 - **Frequent small commits**; push after each. Keep the plan + a task list in-branch.
 - **Code-review checkpoint** after the collector's first end-to-end publish, and again after any change to `base.py`/`discovery.py` (shared code).
