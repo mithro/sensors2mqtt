@@ -67,6 +67,12 @@ jobs:
           mkdir -p built-debs
           cp ../*.deb built-debs/
 
+      # Runs before publish-apt (which `needs: build-deb`), so a package that
+      # would leave a daemon stopped after an upgrade never reaches the apt
+      # repo. See issue #36 and debian/rules.
+      - name: Check systemd start/restart policy
+        run: python3 packaging/check-maintainer-scripts.py built-debs/
+
       - uses: actions/upload-artifact@v4
         with:
           name: debs-${{ matrix.suite }}
