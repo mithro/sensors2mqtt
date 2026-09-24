@@ -96,8 +96,6 @@ jobs:
       suites: "bookworm trixie sid"
       # dh-python builds these Architecture: all; one deb serves every arch.
       architectures: "all"
-      origin: sensors2mqtt
       description: "Publish hardware sensor data to Home Assistant via MQTT"
-      keyring-name: sensors2mqtt.gpg
     secrets:
       gpg-private-key: ${{ secrets.APT_GPG_PRIVATE_KEY }}
