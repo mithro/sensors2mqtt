@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: sensors2mqtt
-Upstream-Contact: Tim Ansell <tim@mithis.com>
+Upstream-Contact: Tim 'mithro' Ansell <me@mith.ro>
 Source: https://github.com/mithro/sensors2mqtt
 
 Files: *

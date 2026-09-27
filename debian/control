@@ -1,7 +1,7 @@
 Source: sensors2mqtt
 Section: python
 Priority: optional
-Maintainer: Tim Ansell <tim@mithis.com>
+Maintainer: Tim 'mithro' Ansell <me@mith.ro>
 Build-Depends: debhelper-compat (= 13),
                dh-python,
                pybuild-plugin-pyproject,
