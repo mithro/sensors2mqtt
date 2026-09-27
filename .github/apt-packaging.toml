@@ -1,0 +1,18 @@
+# How this repository is packaged, and why it differs from the defaults.
+# See https://github.com/mithro/apt-repo-action/blob/main/docs/packaging.md
+
+kind = "B"                  # our own code: debian/ at the root of main
+architectures = "all"       # pure Python (dh-python): Architecture: all
+suites = ["bookworm", "trixie", "forky", "sid"]
+
+[exceptions]
+PKG-SUITES = "fpgas.online uses it"
+
+# bookworm has python3-paho-mqtt 1.6.1. sensors2mqtt needs paho-mqtt >= 2 to
+# build (its tests) and to run: it uses the paho 2 callback API
+# (mqtt.CallbackAPIVersion.VERSION2). paho-mqtt-bookworm backports Debian's
+# 2.1.0 to bookworm.
+[[depends]]
+repo = "mithro/paho-mqtt-bookworm"
+suites = ["bookworm"]
+reason = "python3-paho-mqtt (>= 2) is not in bookworm (1.6.1), and sensors2mqtt uses the paho 2 callback API"
