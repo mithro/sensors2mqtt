@@ -1,83 +1,110 @@
-name: Debian Packages
+name: Debian packages
 
+# Rolling release: every push to main tests, builds the sensors2mqtt packages
+# for each suite, and republishes a signed apt repository per suite on GitHub
+# Pages (https://mith.ro/sensors2mqtt/<suite>/). The packages are all
+# Architecture: all (dh-python), so one x86 build per suite serves every
+# architecture. A pull request runs the same tests and builds, and publishes
+# nothing.
+#
+# This follows mithro/apt-repo-action's docs/packaging.md; the differences
+# from its defaults are declared in .github/apt-packaging.toml.
 on:
   push:
     branches: [main]
-  workflow_dispatch:
   pull_request:
+  workflow_dispatch:
 
 # Least privilege by default: only the publish job below raises this, and only
-# for itself. The build jobs run Docker and clone third-party sources, so they
-# should never hold a token that can write to Pages.
+# for itself. The build jobs run Docker, so they should never hold a token
+# that can write to Pages.
 permissions:
   contents: read
 
+concurrency:
+  group: deb-${{ github.ref }}
+  # A newer push to a pull request cancels the older build. On the default
+  # branch a running publish is never cancelled: the newest push waits for it,
+  # and replaces any older push still waiting (it contains that one's commits).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  build-deb:
-    name: deb (${{ matrix.suite }})
-    runs-on: ubuntu-latest
+  test:
+    # The project's own tests and lint, on each Python it supports. The
+    # package build runs the tests again, against each suite's packages.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        suite: [bookworm, trixie, sid]
-    container: debian:${{ matrix.suite }}
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
-      # bookworm ships paho-mqtt 1.6.1 and this package needs >= 2, so pull the
-      # backport of Debian's own 2.1.0 source. Signed, and scoped to bookworm:
-      # trixie and sid already have 2.1.0 from Debian.
-      - name: Add the paho-mqtt backport (bookworm only)
-        if: matrix.suite == 'bookworm'
+      - uses: actions/checkout@v5
+      # The build generates debian/changelog: apt-repo-action's shared
+      # scripts/deb-version.py writes the build's entry, with the version
+      # derived from git. Committing a build's output would pin a stale
+      # version (and name a commit that may not exist), so it must not be
+      # tracked.
+      - name: debian/changelog is not committed
         run: |
-          set -eux
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl gnupg
-          install -d -m0755 /etc/apt/keyrings
-          curl -fsSL https://mith.ro/paho-mqtt-bookworm/paho-mqtt-bookworm.gpg \
-            | gpg --dearmor -o /etc/apt/keyrings/paho-mqtt-bookworm.gpg
-          KEY=/etc/apt/keyrings/paho-mqtt-bookworm.gpg
-          REPO=https://mith.ro/paho-mqtt-bookworm/bookworm/
-          printf 'deb [signed-by=%s] %s ./\n' "$KEY" "$REPO" \
-            > /etc/apt/sources.list.d/paho-mqtt-bookworm.list
-          cat /etc/apt/sources.list.d/paho-mqtt-bookworm.list
+          git rev-parse --is-inside-work-tree
+          if git ls-files --error-unmatch debian/changelog; then
+            echo "::error file=debian/changelog::debian/changelog is committed, but the build generates it: git rm it"
+            exit 1
+          fi
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install ${{ matrix.python-version }}
+      - run: uv sync --dev --extra ipmi --python ${{ matrix.python-version }}
+      - run: uv run pytest -v
+      - run: uv run ruff check
 
-      - name: Install build dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential ca-certificates git \
-            dpkg-dev debhelper dh-python pybuild-plugin-pyproject \
-            python3-all python3-hatchling python3-hatch-vcs python3-setuptools-scm \
-            python3-paho-mqtt python3-pytest python3-requests
-
-      - uses: actions/checkout@v4
+  build-deb:
+    name: build-deb (${{ matrix.suite }} ${{ matrix.arch }})
+    needs: test
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [bookworm, trixie, forky, sid]
+        arch: [all]
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # full history + tags: the version is git describe's
 
-      - name: Trust repo directory
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-      - name: Set changelog version from git
-        run: python3 packaging/deb-version.py --write-changelog
-
-      - name: Build packages
-        run: dpkg-buildpackage -us -uc
-
-      - name: Collect debs
-        run: |
-          mkdir -p built-debs
-          cp ../*.deb built-debs/
-
-      # Runs before publish-apt (which `needs: build-deb`), so a package that
-      # would leave a daemon stopped after an upgrade never reaches the apt
-      # repo. See issue #36 and debian/rules.
-      - name: Check systemd start/restart policy
-        run: python3 packaging/check-maintainer-scripts.py built-debs/
-
-      - uses: actions/upload-artifact@v4
+      # The shared build: debian:<suite>, the dependency repositories
+      # .github/apt-packaging.toml declares for the suite (paho-mqtt-bookworm
+      # on bookworm), build deps from debian/control, and the version from
+      # the shared deb-version.py (with ~deb<R>, and ~pr<P> on a pull
+      # request). Writes the .debs to built-debs/.
+      - name: Build
+        id: build
+        uses: mithro/apt-repo-action/build-deb@main
         with:
-          name: debs-${{ matrix.suite }}
-          path: built-debs/
+          suite: ${{ matrix.suite }}
+          arch: ${{ matrix.arch }}
+
+      # Install what was just built into a clean container of the same suite,
+      # with the same dependency repositories, and check it (including the
+      # systemd start/restart policy of #36) before anything is published.
+      - name: Install test
+        env:
+          SUITE: ${{ matrix.suite }}
+          APT_SOURCES: ${{ steps.build.outputs.apt-sources }}
+        run: |
+          docker run --rm \
+            -v "$APT_SOURCES:/apt-sources:ro" \
+            -v "$PWD/built-debs:/debs:ro" \
+            -v "$PWD/packaging:/packaging:ro" \
+            "debian:$SUITE" sh /packaging/install-test.sh
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: debs-${{ matrix.suite }}-${{ matrix.arch }}
+          path: built-debs/*.deb
           if-no-files-found: error
+          retention-days: 14
 
   publish-apt:
     # Scoped to this job alone. A job calling a reusable workflow sets the
@@ -87,13 +114,14 @@ jobs:
       contents: read
       pages: write
       id-token: write
-    # Build on PRs to validate, but never publish from one: that would
-    # overwrite the live repository with unreviewed packages.
-    if: github.event_name != 'pull_request'
+    # Build and install-test pull requests, but never publish from one (or
+    # from any branch but main): that would overwrite the live repository
+    # with unreviewed packages.
+    if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
     needs: build-deb
     uses: mithro/apt-repo-action/.github/workflows/publish-apt.yml@main
     with:
-      suites: "bookworm trixie sid"
+      suites: "bookworm trixie forky sid"
       # dh-python builds these Architecture: all; one deb serves every arch.
       architectures: "all"
       description: "Publish hardware sensor data to Home Assistant via MQTT"
