@@ -1,25 +1,59 @@
-name: Debian Packages
+name: Debian packages
 
+# Rolling release: every push to main tests, builds the sensors2mqtt packages
+# for each suite, and republishes a signed apt repository per suite on GitHub
+# Pages (https://mith.ro/sensors2mqtt/<suite>/). The packages are all
+# Architecture: all (dh-python), so one x86 build per suite serves every
+# architecture. A pull request runs the same tests and builds, and publishes
+# nothing.
+#
+# This follows mithro/apt-repo-action's docs/packaging.md; the differences
+# from its defaults are declared in .github/apt-packaging.toml.
 on:
   push:
     branches: [main]
-  workflow_dispatch:
   pull_request:
+  workflow_dispatch:
 
 # Least privilege by default: only the publish job below raises this, and only
-# for itself. The build jobs run Docker and clone third-party sources, so they
-# should never hold a token that can write to Pages.
+# for itself. The build jobs run Docker, so they should never hold a token
+# that can write to Pages.
 permissions:
   contents: read
 
+concurrency:
+  group: deb-${{ github.ref }}
+  # A newer push to a pull request cancels the older build. On the default
+  # branch a running publish is never cancelled: the newest push waits for it,
+  # and replaces any older push still waiting (it contains that one's commits).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  test:
+    # The project's own tests and lint, on each Python it supports. The
+    # package build runs the tests again, against each suite's packages.
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install ${{ matrix.python-version }}
+      - run: uv sync --dev --extra ipmi --python ${{ matrix.python-version }}
+      - run: uv run pytest -v
+      - run: uv run ruff check
+
   build-deb:
-    name: deb (${{ matrix.suite }})
-    runs-on: ubuntu-latest
+    name: build-deb (${{ matrix.suite }} ${{ matrix.arch }})
+    needs: test
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         suite: [bookworm, trixie, sid]
+        arch: [all]
     container: debian:${{ matrix.suite }}
     steps:
       # bookworm ships paho-mqtt 1.6.1 and this package needs >= 2, so pull the
@@ -87,9 +121,10 @@ jobs:
       contents: read
       pages: write
       id-token: write
-    # Build on PRs to validate, but never publish from one: that would
-    # overwrite the live repository with unreviewed packages.
-    if: github.event_name != 'pull_request'
+    # Build and install-test pull requests, but never publish from one (or
+    # from any branch but main): that would overwrite the live repository
+    # with unreviewed packages.
+    if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
     needs: build-deb
     uses: mithro/apt-repo-action/.github/workflows/publish-apt.yml@main
     with:
