@@ -52,7 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [bookworm, trixie, sid]
+        suite: [bookworm, trixie, forky, sid]
         arch: [all]
     container: debian:${{ matrix.suite }}
     steps:
@@ -128,7 +128,7 @@ jobs:
     needs: build-deb
     uses: mithro/apt-repo-action/.github/workflows/publish-apt.yml@main
     with:
-      suites: "bookworm trixie sid"
+      suites: "bookworm trixie forky sid"
       # dh-python builds these Architecture: all; one deb serves every arch.
       architectures: "all"
       description: "Publish hardware sensor data to Home Assistant via MQTT"
