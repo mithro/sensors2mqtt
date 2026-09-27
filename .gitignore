@@ -29,6 +29,8 @@ docs/_build/
 
 # Debian build artifacts
 .pybuild/
+# Written by each build (apt-repo-action's scripts/deb-version.py); never committed.
+debian/changelog
 debian/.debhelper/
 debian/debhelper-build-stamp
 debian/files
