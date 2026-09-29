@@ -1,0 +1,22 @@
+name: Refresh bundled packages
+
+# The bookworm suite bundles python3-paho-mqtt from mithro/paho-mqtt-bookworm
+# (.github/apt-packaging.toml, `bundle = true`). A newer paho-mqtt-bookworm
+# build reaches sensors2mqtt's users only when this repository publishes
+# again; this checks weekly whether paho-mqtt-bookworm has something newer
+# than the live site bundles, and only then starts "Debian packages" on main
+# (mithro/apt-repo-action docs/packaging.md, "Bundling a dependency
+# repository"). Most weeks nothing runs.
+on:
+  schedule: [{cron: "23 4 * * 1"}]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write      # to start the build workflow
+
+jobs:
+  refresh:
+    uses: mithro/apt-repo-action/.github/workflows/refresh-bundled.yml@main
+    with:
+      suites: "bookworm trixie forky sid"

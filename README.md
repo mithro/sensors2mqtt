@@ -36,17 +36,12 @@ sudo apt update
 The repository's signing key is
 `9DD7 CAB5 5164 4986 1B22  43E6 1313 6D7A 38B0 462E`.
 
-**On bookworm**, also add paho-mqtt-bookworm: sensors2mqtt needs
-paho-mqtt 2, and bookworm has 1.6.1. It is Debian's own 2.1.0, rebuilt for
-bookworm, signed with `074C BB69 3305 11A9 F3C9  975A 0591 CCA6 8503 B317`:
-
-```sh
-sudo install -d -m0755 /etc/apt/keyrings
-curl -fsSL https://mith.ro/paho-mqtt-bookworm/paho-mqtt-bookworm.gpg | sudo tee /etc/apt/keyrings/paho-mqtt-bookworm.gpg > /dev/null
-echo "deb [signed-by=/etc/apt/keyrings/paho-mqtt-bookworm.gpg] https://mith.ro/paho-mqtt-bookworm/bookworm/ ./" \
-  | sudo tee /etc/apt/sources.list.d/paho-mqtt-bookworm.list
-sudo apt update
-```
+**On bookworm** nothing else is needed: sensors2mqtt needs paho-mqtt 2 and
+bookworm has 1.6.1, so the bookworm suite also carries `python3-paho-mqtt`
+2.1.0 (Debian's own, rebuilt for bookworm by
+[paho-mqtt-bookworm](https://github.com/mithro/paho-mqtt-bookworm)), signed
+with this repository's key. A host that already has paho-mqtt-bookworm's
+repository can keep it.
 
 | Package | Service | Notes |
 |---------|---------|-------|
@@ -112,7 +107,8 @@ suite with [mithro/apt-repo-action](https://github.com/mithro/apt-repo-action)'s
 `~deb<R>` (`0.3.post140~deb12`; nothing for sid; `~pr<P>` on a pull request).
 There is no committed `debian/changelog`: the build writes one, and git
 ignores it. What the packaging differs from the defaults in, and bookworm's
-paho-mqtt-bookworm dependency, is declared in `.github/apt-packaging.toml`.
+paho-mqtt-bookworm dependency (bundled into the bookworm suite), is declared
+in `.github/apt-packaging.toml`.
 
 ## Usage
 

@@ -11,8 +11,10 @@ PKG-SUITES = "fpgas.online uses it"
 # bookworm has python3-paho-mqtt 1.6.1. sensors2mqtt needs paho-mqtt >= 2 to
 # build (its tests) and to run: it uses the paho 2 callback API
 # (mqtt.CallbackAPIVersion.VERSION2). paho-mqtt-bookworm backports Debian's
-# 2.1.0 to bookworm.
+# 2.1.0 to bookworm. Bundled: publish-apt serves it from sensors2mqtt's own
+# bookworm suite, re-signed, so users add only this repository.
 [[depends]]
 repo = "mithro/paho-mqtt-bookworm"
 suites = ["bookworm"]
+bundle = true
 reason = "python3-paho-mqtt (>= 2) is not in bookworm (1.6.1), and sensors2mqtt uses the paho 2 callback API"

@@ -84,17 +84,51 @@ jobs:
           suite: ${{ matrix.suite }}
           arch: ${{ matrix.arch }}
 
+      # paho-mqtt-bookworm is bundled (.github/apt-packaging.toml): its
+      # packages that ours need are served from our own bookworm suite. So
+      # the install test takes them from the bundle, not from
+      # paho-mqtt-bookworm's repository, which proves a user needs only
+      # ours (apt-repo-action docs/packaging.md, "Bundling a dependency
+      # repository"). Dependency repositories that aren't bundled (none
+      # today) are still added.
+      - name: Check out apt-repo-action's scripts
+        uses: actions/checkout@v5
+        with:
+          repository: mithro/apt-repo-action
+          ref: main
+          path: .apt-repo-action
+          sparse-checkout: scripts
+
+      - name: The bundled packages, and the other dependency repositories
+        id: bundle
+        env:
+          SUITE: ${{ matrix.suite }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p bundled-debs
+          python3 .apt-repo-action/scripts/bundle-depends.py fetch \
+            --suite "$SUITE" --debs built-debs --dest bundled-debs --index
+          python3 .apt-repo-action/scripts/apt-sources.py write --unbundled \
+            --suite "$SUITE" --dest "$RUNNER_TEMP/apt-sources-unbundled" > /dev/null
+          echo "apt-sources=$RUNNER_TEMP/apt-sources-unbundled" >> "$GITHUB_OUTPUT"
+          ls -l bundled-debs
+
       # Install what was just built into a clean container of the same suite,
-      # with the same dependency repositories, and check it (including the
-      # systemd start/restart policy of #36) before anything is published.
+      # with only our repository's packages (built and bundled) and any
+      # unbundled dependency repository, and check it (including the systemd
+      # start/restart policy of #36) before anything is published.
       - name: Install test
         env:
           SUITE: ${{ matrix.suite }}
-          APT_SOURCES: ${{ steps.build.outputs.apt-sources }}
+          APT_SOURCES: ${{ steps.bundle.outputs.apt-sources }}
         run: |
-          docker run --rm \
+          # --platform: an Architecture: all build runs on this runner's own
+          # architecture, and an earlier pull may have pointed the tag elsewhere.
+          docker run --rm --platform linux/amd64 \
             -v "$APT_SOURCES:/apt-sources:ro" \
             -v "$PWD/built-debs:/debs:ro" \
+            -v "$PWD/bundled-debs:/bundled:ro" \
             -v "$PWD/packaging:/packaging:ro" \
             "debian:$SUITE" sh /packaging/install-test.sh
 

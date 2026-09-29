@@ -4,18 +4,29 @@
 # suite, as:
 #
 #   docker run --rm -v "$APT_SOURCES:/apt-sources:ro" \
-#     -v "$PWD/built-debs:/debs:ro" -v "$PWD/packaging:/packaging:ro" \
+#     -v "$PWD/built-debs:/debs:ro" -v "$PWD/bundled-debs:/bundled:ro" \
+#     -v "$PWD/packaging:/packaging:ro" \
 #     debian:<suite> sh /packaging/install-test.sh
 #
-# /apt-sources is apt-repo-action build-deb's `apt-sources` output: the
-# dependency repositories .github/apt-packaging.toml declares for the suite
-# (paho-mqtt-bookworm, on bookworm). Its install.sh adds them, and does
-# nothing for a suite with none. Without the mount, none are added.
+# /bundled holds the packages bundled from dependency repositories declared
+# with `bundle` (python3-paho-mqtt from paho-mqtt-bookworm, on bookworm), as
+# apt-repo-action's bundle-depends.py fetch --index wrote them: publish-apt
+# serves them from our own suite, so they are offered here as a local
+# source and apt chooses among them as it would from the published
+# repository. /apt-sources holds only the dependency repositories that
+# aren't bundled (apt-sources.py write --unbundled; none today); its
+# install.sh does nothing without any. Either mount may be left out.
 set -eu
 export DEBIAN_FRONTEND=noninteractive
 
 if [ -e /apt-sources/install.sh ]; then
   sh /apt-sources/install.sh
+fi
+# trusted=yes only in this throwaway container: bundle-depends.py verified
+# every bundled file against its repository's signed index, and nothing
+# published ever says it (apt-repo-action docs/packaging.md).
+if [ -s /bundled/Packages ]; then
+  echo "deb [trusted=yes] file:/bundled ./" > /etc/apt/sources.list.d/bundled.list
 fi
 apt-get update
 apt-get install -y --no-install-recommends /debs/*.deb
@@ -24,8 +35,17 @@ apt-get install -y --no-install-recommends /debs/*.deb
 # start on install but do restart on upgrade (issue #36, debian/rules).
 python3 /packaging/check-maintainer-scripts.py /debs
 
-# sensors2mqtt uses the paho 2 callback API; bookworm's own paho is 1.6.1.
+# sensors2mqtt uses the paho 2 callback API; bookworm's own paho is 1.6.1,
+# so on bookworm it must have come from the bundle (our repository), not from
+# paho-mqtt-bookworm's, which this test never adds.
 dpkg-query -W python3-paho-mqtt
+if [ -s /bundled/Packages ]; then
+  apt-cache policy python3-paho-mqtt
+  if ls /etc/apt/sources.list.d/ | grep -q paho-mqtt-bookworm; then
+    echo "error: paho-mqtt-bookworm's repository was added; it's bundled" >&2
+    exit 1
+  fi
+fi
 python3 -c '
 import paho.mqtt, sys
 v = paho.mqtt.__version__
