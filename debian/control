@@ -103,3 +103,26 @@ Description: sensors2mqtt IPMI sensor collector
  .
  Configure BMC_HOST/BMC_USER/BMC_PASS and the MQTT connection in
  /etc/sensors2mqtt/env, then start the service.
+
+Package: sensors2mqtt-storage
+Architecture: all
+Depends: python3-sensors2mqtt (= ${binary:Version}),
+         python3,
+         systemd,
+         ${misc:Depends}
+Recommends: smartmontools (>= 7.5+git),
+            dmsetup
+Description: sensors2mqtt storage collectors (drives, enclosures, LVM, md, filesystems)
+ Installs two systemd services:
+ .
+  * sensors2mqtt-storage: one Home Assistant device per drive, keyed by its
+    serial number, with every SMART lifetime counter (read from smartd's
+    --jsonstate files; it sends no command to any drive), I/O statistics,
+    link health, and the SES enclosure slot it is in.
+  * sensors2mqtt-storage-lvm: filesystem usage, md arrays, LVM volume groups,
+    logical volumes and RAID/integrity/cache health, read without touching a
+    disk.
+ .
+ smartd must write JSON state files (smartd -j; the mithro/smartmontools
+ build does by default). Configure the MQTT connection in
+ /etc/sensors2mqtt/env, then start the services.

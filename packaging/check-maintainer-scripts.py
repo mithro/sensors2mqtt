@@ -47,6 +47,7 @@ RESTART_ONLY = {
     "sensors2mqtt-snmp-control",
     "sensors2mqtt-local-control",
     "sensors2mqtt-ipmi-sensors",
+    "sensors2mqtt-storage",
 }
 
 # Packages that are safe to start the moment they are installed.

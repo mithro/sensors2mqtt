@@ -67,7 +67,8 @@ fi
 
 # Each service's ExecStart module imports and parses its arguments.
 for unit in sensors2mqtt-local sensors2mqtt-snmp sensors2mqtt-snmp-control \
-            sensors2mqtt-local-control sensors2mqtt-ipmi-sensors; do
+            sensors2mqtt-local-control sensors2mqtt-ipmi-sensors \
+            sensors2mqtt-storage sensors2mqtt-storage-lvm; do
   file=/lib/systemd/system/$unit.service
   test -f "$file"
   module=$(sed -n 's|^ExecStart=/usr/bin/python3 -m \([^ ]*\).*|\1|p' "$file")

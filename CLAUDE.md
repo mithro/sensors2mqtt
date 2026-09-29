@@ -13,8 +13,23 @@ BasePublisher (base.py)          — MQTT connection, poll loop, signals, discov
 ├── LocalCollector (collector/local/base.py) — shared sysfs/proc/hwmon infrastructure
 │   ├── RpiCollector (collector/local/rpi.py)       — RPi sensors (all models)
 │   └── MellanoxCollector (collector/local/mellanox.py) — Mellanox SN2410 switch sensors
-└── IpmiSensorCollector (collector/ipmi_sensors.py) — ipmitool + BMC web API
+├── IpmiSensorCollector (collector/ipmi_sensors.py) — ipmitool + BMC web API
+└── StorageLvmCollector (collector/storage_lvm.py) — filesystems, md, LVM (host device)
+
+StorageCollector (collector/storage/collector.py) — one HA device per drive + enclosure
 ```
+
+### Storage collectors
+
+`storage` publishes one HA device per **drive, keyed by serial** (`disk_<serial>`,
+`via_device` = the host that has it now), so a drive that moves keeps its entities
+and history. **smartd is the only process allowed to send SMART/log commands to
+drives**: SMART data comes only from smartd's `--jsonstate` files
+(`/var/lib/smartmontools/smartd-json.*.json`, mithro/smartmontools build). Never
+add `smartctl`/`hdparm`/`nvme`/`drivetemp` reads to a collector: a SAMSUNG HD204UI
+silently drops a pending write when IDENTIFY arrives (the 2026-03 md125 zero holes).
+`storage_lvm` reads no disk either (LVM metadata backups + `dmsetup status`).
+Design: `docs/superpowers/specs/2026-09-30-storage-collectors-design.md`.
 
 `python -m sensors2mqtt.collector.local` auto-detects hardware and runs the right collector.
 
@@ -73,6 +88,8 @@ uv run python -m sensors2mqtt.collector.snmp
 uv run python -m sensors2mqtt.collector.local          # auto-detects RPi/Mellanox
 uv run python -m sensors2mqtt.collector.local --hardware rpi   # force RPi mode
 uv run python -m sensors2mqtt.collector.ipmi_sensors
+uv run python -m sensors2mqtt.collector.storage --once        # drives + enclosures
+sudo uv run python -m sensors2mqtt.collector.storage_lvm --once   # prints values
 ```
 
 ## Key Design Decisions
