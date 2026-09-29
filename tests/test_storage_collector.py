@@ -80,8 +80,8 @@ def configs(client):
 
 
 def test_publish_discovery_once_then_on_change(mock_mqtt_client, monkeypatch):
-    monkeypatch.setattr(coll, "host_id", lambda: "big_storage")
-    monkeypatch.setattr(coll, "host_name", lambda: "big-storage")
+    # connection_status_topic() (base.py) derives the host from the hostname too
+    monkeypatch.setattr("socket.gethostname", lambda: "big-storage.welland.mithis.com")
     c = coll.StorageCollector(config=MqttConfig())
     pub = coll.build_drive(drive(), "big_storage", "big-storage", None, None, 0.0, None)
 
@@ -110,7 +110,7 @@ def test_publish_discovery_once_then_on_change(mock_mqtt_client, monkeypatch):
 
 
 def test_removed_drive_goes_offline(mock_mqtt_client, monkeypatch):
-    monkeypatch.setattr(coll, "host_id", lambda: "h")
+    monkeypatch.setattr("socket.gethostname", lambda: "h")
     c = coll.StorageCollector(config=MqttConfig())
     c.publish(mock_mqtt_client, [coll.build_drive(drive(), "h", "h", None, None, 0.0, None)])
     mock_mqtt_client.published.clear()
@@ -122,7 +122,7 @@ def test_removed_drive_goes_offline(mock_mqtt_client, monkeypatch):
 
 
 def test_vanished_value_is_published_as_null(mock_mqtt_client, monkeypatch):
-    monkeypatch.setattr(coll, "host_id", lambda: "h")
+    monkeypatch.setattr("socket.gethostname", lambda: "h")
     c = coll.StorageCollector(config=MqttConfig())
     c.publish(mock_mqtt_client, [coll.build_drive(drive(), "h", "h", None, None, 0.0, None)])
     gone = coll.build_drive(drive(phy={}), "h", "h", None, None, 0.0, None)
