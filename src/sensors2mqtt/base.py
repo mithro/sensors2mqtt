@@ -22,6 +22,7 @@ from sensors2mqtt.discovery import (
     publish_connection_diagnostic,
     publish_discovery,
     publish_state,
+    remove_discovery,
 )
 
 log = logging.getLogger(__name__)
@@ -191,6 +192,14 @@ class BasePublisher(ABC):
     def poll(self) -> dict | None:
         """Poll sensors. Return {suffix: value} dict, or None on failure."""
 
+    def retired_sensor_suffixes(self) -> list[str]:
+        """Suffixes this collector used to publish and no longer does.
+
+        Their discovery configs are cleared at startup, which removes the
+        entities from Home Assistant. Override to list them.
+        """
+        return []
+
     def dynamic_sensors(self) -> list[tuple[SensorDef, object]]:
         """Sensors discovered at runtime, re-probed each poll. Override to add.
 
@@ -232,6 +241,10 @@ class BasePublisher(ABC):
         publish_connection_diagnostic(
             client, self.device.node_id, self.module, self.device.name
         )
+        retired = self.retired_sensor_suffixes()
+        if retired:
+            remove_discovery(client, self.device.node_id, retired)
+            log.info("Removed discovery for %d retired sensor(s)", len(retired))
 
         try:
             while not self._stop_event.is_set():
