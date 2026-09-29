@@ -182,3 +182,46 @@ def test_collect_logical_rollups():
     assert out["lvm_degraded_raids"] == 1
     assert out["lvm_resyncing_raids"] == 1
     assert out["integrity_mismatches"] == 5
+
+
+def test_names_starting_with_digits():
+    meta = lvm.parse_lvm_metadata('vg { 1data { extent_count = 5 } 4k-test = "x" n = -3 }')
+    assert meta == {"vg": {"1data": {"extent_count": 5}, "4k-test": "x", "n": -3}}
+
+
+def test_resyncing_raid_is_not_degraded():
+    dm = lvm.parse_dmsetup_status("vg-new: 0 1000 raid raid1 2 aa 100/1000 resync 0 0 -\n")
+    out = dict((s.suffix, v) for s, v in collect_logical([], [], [], [], dm))
+    assert out["raid_vg_new_failed_images"] == 0
+    assert out["raid_vg_new_unsynced_images"] == 2
+    assert out["lvm_degraded_raids"] == 0 and out["lvm_resyncing_raids"] == 1
+
+
+def test_btrfs_subvolumes_and_fstab_against_all_mounts(tmp_path):
+    (tmp_path / "proc/self").mkdir(parents=True)
+    (tmp_path / "proc/self/mountinfo").write_text(
+        "22 1 0:30 /@ / rw - btrfs /dev/sda2 rw,subvol=/@\n"
+        "23 22 0:30 /@home /home rw - btrfs /dev/sda2 rw,subvol=/@home\n"
+        "24 22 8:3 / /data rw - ext4 /dev/sda3 rw\n"
+        "25 22 8:3 /x /data2 rw - ext4 /dev/sda3 rw\n")
+
+    class St:
+        f_frsize, f_blocks, f_bfree, f_bavail, f_files, f_ffree = 4096, 10, 5, 5, 0, 0
+
+    fss = lvm.read_filesystems(str(tmp_path), statvfs=lambda m: St)
+    assert [f.mountpoint for f in fss] == ["/", "/home", "/data"]
+    fstab = ("UUID=a / btrfs subvol=@ 0 0\nUUID=a /home btrfs subvol=@home 0 0\n"
+             "UUID=b /data2 ext4 defaults 0 2\n")
+    assert lvm.fstab_not_mounted(fstab, lvm.all_mountpoints(str(tmp_path))) == []
+
+
+def test_idle_md_is_fully_synced(tmp_path):
+    md = tmp_path / "sys/block/md0/md"
+    md.mkdir(parents=True)
+    for f, v in (("level", "raid1"), ("array_state", "clean"), ("raid_disks", "2"),
+                 ("degraded", "0"), ("sync_action", "idle"), ("sync_completed", "none"),
+                 ("mismatch_cnt", "0")):
+        (md / f).write_text(v + "\n")
+    (tmp_path / "sys/block/md0/size").write_text("2048\n")
+    (a,) = lvm.read_md_arrays(str(tmp_path))
+    assert (a.sync_pct, a.degraded, a.size_bytes) == (100.0, 0, 2048 * 512)

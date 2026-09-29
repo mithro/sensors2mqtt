@@ -110,19 +110,31 @@ Depends: python3-sensors2mqtt (= ${binary:Version}),
          python3,
          systemd,
          ${misc:Depends}
-Recommends: smartmontools (>= 7.5+git),
-            dmsetup
-Description: sensors2mqtt storage collectors (drives, enclosures, LVM, md, filesystems)
- Installs two systemd services:
- .
-  * sensors2mqtt-storage: one Home Assistant device per drive, keyed by its
-    serial number, with every SMART lifetime counter (read from smartd's
-    --jsonstate files; it sends no command to any drive), I/O statistics,
-    link health, and the SES enclosure slot it is in.
-  * sensors2mqtt-storage-lvm: filesystem usage, md arrays, LVM volume groups,
-    logical volumes and RAID/integrity/cache health, read without touching a
-    disk.
+Recommends: smartmontools (>= 7.5+git)
+Description: sensors2mqtt storage device collector (drives and enclosures)
+ Installs the sensors2mqtt-storage systemd service: one Home Assistant device
+ per drive, keyed by its serial number, with every SMART lifetime counter (read
+ from smartd's --jsonstate files; it sends no command to any drive), I/O
+ statistics, link health and the SES enclosure slot it is in; and one device
+ per SES enclosure with the state of each slot. Runs unprivileged.
  .
  smartd must write JSON state files (smartd -j; the mithro/smartmontools
  build does by default). Configure the MQTT connection in
- /etc/sensors2mqtt/env, then start the services.
+ /etc/sensors2mqtt/env, then start the service.
+
+Package: sensors2mqtt-storage-lvm
+Architecture: all
+Depends: python3-sensors2mqtt (= ${binary:Version}),
+         python3,
+         systemd,
+         dmsetup,
+         ${misc:Depends}
+Description: sensors2mqtt filesystem, md and LVM collector
+ Installs the sensors2mqtt-storage-lvm systemd service, which publishes
+ filesystem usage, md arrays, LVM volume group / logical volume / physical
+ volume allocation and RAID, integrity and cache health on the host's Home
+ Assistant device. It reads no disk: LVM layout comes from /etc/lvm/backup
+ and health from the kernel's device-mapper status. Runs as root.
+ .
+ Configure the MQTT connection in /etc/sensors2mqtt/env, then start the
+ service.

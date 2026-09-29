@@ -31,10 +31,10 @@ SECTOR = 512
 _TOKEN_RE = re.compile(r'''
     \s+ | \#[^\n]* |                       # whitespace, comments
     (?P<str>"(?:[^"\\]|\\.)*") |
-    (?P<num>-?\d+(?:\.\d+)?) |
-    (?P<name>[A-Za-z0-9_.+\-]+) |
+    (?P<word>[A-Za-z0-9_.+\-]+) |          # a name or a number (see _tokens)
     (?P<punct>[={}\[\],])
 ''', re.VERBOSE)
+_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
 
 def _tokens(text: str):
@@ -46,11 +46,13 @@ def _tokens(text: str):
         pos = m.end()
         if m.group("str") is not None:
             yield ("str", re.sub(r"\\(.)", r"\1", m.group("str")[1:-1]))
-        elif m.group("num") is not None:
-            n = m.group("num")
-            yield ("num", float(n) if "." in n else int(n))
-        elif m.group("name") is not None:
-            yield ("name", m.group("name"))
+        elif m.group("word") is not None:
+            # A whole word: LV and VG names may start with digits ("1data").
+            w = m.group("word")
+            if _NUMBER_RE.fullmatch(w):
+                yield ("num", float(w) if "." in w else int(w))
+            else:
+                yield ("name", w)
         elif m.group("punct") is not None:
             yield ("punct", m.group("punct"))
 
@@ -312,12 +314,15 @@ def read_md_arrays(sysfs_root: str = "/") -> list[MdArray]:
             return int(v) if v is not None and v.isdigit() else None
 
         done = _read(md / "sync_completed")
+        action = _read(md / "sync_action")
         sync = None
         if done and "/" in done:
             sync = _ratio(done.replace(" ", ""))
+        elif action == "idle":
+            sync = 100.0  # sync_completed is "none" when nothing is running
         out.append(MdArray(name=b.name, level=_read(md / "level"), state=_read(md / "array_state"),
                            raid_disks=num("raid_disks"), degraded=num("degraded"),
-                           sync_action=_read(md / "sync_action"), sync_pct=sync,
+                           sync_action=action, sync_pct=sync,
                            mismatches=num("mismatch_cnt"),
                            size_bytes=int(_read(b / "size") or 0) * SECTOR))
     return out
@@ -344,20 +349,37 @@ class Filesystem:
         return round(100.0 * self.used_bytes / total, 1) if total else 0.0
 
 
-def read_filesystems(proc_root: str = "/", statvfs=os.statvfs) -> list[Filesystem]:
-    """Mounted block-backed filesystems, once each (bind mounts skipped)."""
+def _mountinfo(proc_root: str):
+    """(devno, root, mount point, options, fstype, source) per mountinfo line."""
     text = _read(Path(proc_root) / "proc/self/mountinfo") or ""
-    out, seen = [], set()
     for line in text.splitlines():
         pre, _, post = line.partition(" - ")
         f, g = pre.split(), post.split()
         if len(f) < 6 or len(g) < 2:
             continue
-        devno, root, mnt, opts = f[2], f[3], f[4].replace("\\040", " "), f[5]
-        fstype, source = g[0], g[1]
-        if fstype not in FS_TYPES or devno in seen or root != "/":
+        yield f[2], f[3], f[4].replace("\\040", " "), f[5], g[0], g[1]
+
+
+def all_mountpoints(proc_root: str = "/") -> set[str]:
+    """Every mount point, whatever is mounted there."""
+    return {m[2] for m in _mountinfo(proc_root)}
+
+
+def read_filesystems(proc_root: str = "/", statvfs=os.statvfs) -> list[Filesystem]:
+    """Mounted block-backed filesystems, once each.
+
+    A bind mount of a directory (mountinfo root not "/") repeats a filesystem
+    already listed and is skipped, except on btrfs, where each subvolume mount
+    (root "/@home") is its own tree.
+    """
+    out, seen = [], set()
+    for devno, root, mnt, opts, fstype, source in _mountinfo(proc_root):
+        if fstype not in FS_TYPES:
             continue
-        seen.add(devno)
+        key = (devno, root) if fstype == "btrfs" else devno
+        if key in seen or (root != "/" and fstype != "btrfs"):
+            continue
+        seen.add(key)
         try:
             st = statvfs(mnt)
         except OSError as e:

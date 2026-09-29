@@ -139,7 +139,7 @@ DIMM temperatures, fan speeds, voltages, and per-PSU input/output power.
 
 ## Storage collectors
 
-Package `sensors2mqtt-storage`, two services. Design and reasons:
+Packages `sensors2mqtt-storage` and `sensors2mqtt-storage-lvm`. Design and reasons:
 [storage collectors design](superpowers/specs/2026-09-30-storage-collectors-design.md).
 
 **`sensors2mqtt-storage`** (unprivileged) publishes one Home Assistant device
@@ -165,7 +165,7 @@ RAID health, sync progress, integrity mismatches and cache usage from
 `dmsetup status`, with roll-ups for the problems worth an alert.
 
 ```sh
-sudo apt install sensors2mqtt-storage
+sudo apt install sensors2mqtt-storage sensors2mqtt-storage-lvm
 sudo systemctl enable --now sensors2mqtt-storage sensors2mqtt-storage-lvm
 ```
 

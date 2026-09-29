@@ -119,3 +119,25 @@ def test_removed_drive_goes_offline(mock_mqtt_client, monkeypatch):
               if m["topic"] == "sensors2mqtt/disk_zhz598dy/storage/status"]
     assert status == [{"topic": "sensors2mqtt/disk_zhz598dy/storage/status",
                        "payload": "offline", "retain": True}]
+
+
+def test_vanished_value_is_published_as_null(mock_mqtt_client, monkeypatch):
+    monkeypatch.setattr(coll, "host_id", lambda: "h")
+    c = coll.StorageCollector(config=MqttConfig())
+    c.publish(mock_mqtt_client, [coll.build_drive(drive(), "h", "h", None, None, 0.0, None)])
+    gone = coll.build_drive(drive(phy={}), "h", "h", None, None, 0.0, None)
+    mock_mqtt_client.published.clear()
+    c.publish(mock_mqtt_client, [gone])
+    (state,) = [json.loads(m["payload"]) for m in mock_mqtt_client.published
+                if m["topic"] == "sensors2mqtt/disk_zhz598dy/storage/state"]
+    assert state["link_rate"] is None and state["link_invalid_dwords"] is None
+    assert state["location"] == "SAS3x48Front slot 16"
+
+
+def test_device_info_ignores_smart_data():
+    doc = json.loads(next(FIXTURES.glob("*SEAGATE-ST10000NM0226*")).read_text())
+    smart = parse_smartd_json(doc)
+    d = drive(serial=smart.serial, model="ST10000NM0226", firmware="KTB5")
+    with_smart = coll.build_drive(d, "h", "h", None, None, 0.0, smart).device
+    without = coll.build_drive(d, "h", "h", None, None, 0.0, None).device
+    assert with_smart == without

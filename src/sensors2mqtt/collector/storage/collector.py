@@ -117,9 +117,12 @@ def drive_location(drive: Drive) -> str:
 def build_drive(drive: Drive, host: str, host_display: str, stats: DiskStats | None,
                 prev: tuple[float, DiskStats] | None, now: float,
                 smart: SmartData | None) -> Published:
-    """Everything published for one drive."""
-    model = smart.model if smart and smart.model else drive.model
-    firmware = drive.firmware or (smart.firmware if smart else None)
+    """Everything published for one drive.
+
+    The device info comes from sysfs only, so it doesn't change (and trigger a
+    re-discovery of every entity) when smartd's file is missing for a poll.
+    """
+    model, firmware = drive.model, drive.firmware
     pub = Published(DeviceInfo(
         node_id=drive_node_id(drive.serial),
         name=f"{model} {drive.serial}",
@@ -274,7 +277,13 @@ class StorageCollector:
         smart = load_smartd_states(
             self.jsonstate_glob, {d.serial: d.logical_block_size for d in drives})
         out = []
+        seen: set[str] = set()
         for d in drives:
+            # Two block devices with one serial (dual-path SAS, NVMe with
+            # several namespaces) are one drive: publish the first.
+            if d.serial in seen:
+                continue
+            seen.add(d.serial)
             s = stats.get(d.name)
             out.append(build_drive(d, self.host, self.host_display, s,
                                    self._prev_stats.get(d.serial), now, smart.get(d.serial)))
@@ -302,8 +311,14 @@ class StorageCollector:
                 publish_discovery(client, todo, pub.device, self.state_topic(node),
                                   self.status_topic(node), self.connection_topic,
                                   default_entity_id=True)
-            self._published[node] = (pub.device, done | {s.suffix for s in todo})
-            publish_state(client, self.state_topic(node), pub.values)
+            discovered = done | {s.suffix for s in todo}
+            self._published[node] = (pub.device, discovered)
+            # A discovered sensor with no value this poll is published as null
+            # (HA: unknown), not left out, which would freeze its last value.
+            values = dict(pub.values)
+            for suffix in discovered - values.keys():
+                values[suffix] = None
+            publish_state(client, self.state_topic(node), values)
             client.publish(self.status_topic(node), "online", retain=True)
         for node in list(self._published):
             if node not in seen:

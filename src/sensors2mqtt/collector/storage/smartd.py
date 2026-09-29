@@ -142,9 +142,14 @@ def _temp(suffix, name, diagnostic=False) -> SensorDef:
 
 
 # ATA attributes that only ever grow: summed as counters. Everything else
-# (temperatures, error rates, vendor packed values) is a measurement.
-_ATA_COUNTER_IDS = {4, 5, 9, 10, 12, 183, 184, 187, 188, 192, 193, 196, 197, 198, 199,
+# (temperatures, error rates, vendor packed values, and counts that fall when
+# sectors are remapped or rewritten, like 197 pending and 198 offline
+# uncorrectable) is a measurement: HA would read a fall in a total_increasing
+# sensor as a meter reset and add the new value to its long-term sum.
+_ATA_COUNTER_IDS = {4, 5, 9, 10, 12, 183, 184, 187, 188, 192, 193, 196, 199,
                     225, 240, 241, 242, 246, 247, 248}
+# Device Statistics entries that can fall.
+_DEVSTAT_GAUGES = {"Number of Realloc. Candidate Logical Sectors", "Pending Error Count"}
 # ATA attribute ids whose raw value is a temperature.
 _ATA_TEMP_IDS = {190, 194}
 
@@ -152,13 +157,15 @@ _ATA_TEMP_IDS = {190, 194}
 def _parse_ata(d: dict, sd: SmartData, logical_sector_bytes: int) -> None:
     attrs = (d.get("ata_smart_attributes") or {}).get("table") or []
     failing = []
-    by_id = {}
+    by_id: dict = {}
+    names: dict = {}
     for a in attrs:
         aid, name = a.get("id"), a.get("name", "Unknown_Attribute")
         if aid is None:
             continue
         raw = _ata_raw(a)
         by_id[aid] = raw
+        names[aid] = name
         base = f"ata_{aid}_{slug(name)}"
         label = f"SMART {aid} {name}"
         if aid in _ATA_TEMP_IDS:
@@ -188,6 +195,8 @@ def _parse_ata(d: dict, sd: SmartData, logical_sector_bytes: int) -> None:
                 sensor = _temp(s, name, diagnostic=True)
             elif "Hours" in name:
                 sensor = _hours(s, name)
+            elif name in _DEVSTAT_GAUGES:
+                sensor = _gauge(s, name, icon="mdi:alert-circle")
             elif page.get("number") == 5 or name.startswith("Date and Time") \
                     or "Workload" in name or "Utilization" in name \
                     or "Percentage" in name or "Resource" in name:
@@ -209,8 +218,13 @@ def _parse_ata(d: dict, sd: SmartData, logical_sector_bytes: int) -> None:
     sd.add(_hours("power_on_hours", "Power-on Hours"), poh)
     cycles = devstat.get("Lifetime Power-On Resets", by_id.get(12))
     sd.add(_counter("power_cycles", "Power Cycles", icon="mdi:power-cycle"), cycles)
-    written = devstat.get("Logical Sectors Written", by_id.get(241))
-    read = devstat.get("Logical Sectors Read", by_id.get(242))
+    # 241/242 count LBAs on most drives, but e.g. Intel SSDs count 32 MiB or GiB
+    # units (Host_Writes_32MiB): only trust them when named in LBAs.
+    def lbas(aid):
+        return by_id.get(aid) if "LBA" in names.get(aid, "") else None
+
+    written = devstat.get("Logical Sectors Written", lbas(241))
+    read = devstat.get("Logical Sectors Read", lbas(242))
     if written is not None:
         sd.add(_data("lifetime_written", "Lifetime Written"),
                round(written * logical_sector_bytes / GB, 3))
@@ -219,10 +233,10 @@ def _parse_ata(d: dict, sd: SmartData, logical_sector_bytes: int) -> None:
                round(read * logical_sector_bytes / GB, 3))
     sd.add(_counter("reallocated_sectors", "Reallocated Sectors", icon="mdi:alert-circle"),
            by_id.get(5))
-    sd.add(_counter("pending_sectors", "Pending Sectors", icon="mdi:alert-circle"),
+    sd.add(_gauge("pending_sectors", "Pending Sectors", icon="mdi:alert-circle"),
            by_id.get(197))
-    sd.add(_counter("offline_uncorrectable", "Offline Uncorrectable Sectors",
-                    icon="mdi:alert-circle"), by_id.get(198))
+    sd.add(_gauge("offline_uncorrectable", "Offline Uncorrectable Sectors",
+                  icon="mdi:alert-circle"), by_id.get(198))
     sd.add(_counter("interface_crc_errors", "Interface CRC Errors", icon="mdi:cable-data"),
            devstat.get("Number of Interface CRC Errors", by_id.get(199)))
 
@@ -293,7 +307,7 @@ def _parse_scsi(d: dict, sd: SmartData) -> None:
                round(pot["hours"] + pot.get("minutes", 0) / 60, 2))
     sd.add(_counter("scsi_grown_defects", "Grown Defects", icon="mdi:alert-circle"),
            _num(d.get("scsi_grown_defect_list")))
-    sd.add(_counter("scsi_pending_defects", "Pending Defects", icon="mdi:alert-circle"),
+    sd.add(_gauge("scsi_pending_defects", "Pending Defects", icon="mdi:alert-circle"),
            (d.get("scsi_pending_defects") or {}).get("count"))
     bms = (d.get("scsi_background_scan") or {}).get("status") or {}
     sd.add(_counter("scsi_background_scans", "Background Scans", icon="mdi:magnify-scan",
@@ -343,6 +357,9 @@ _NVME_FIELDS = {
 
 def _parse_nvme(d: dict, sd: SmartData) -> None:
     h = d.get("nvme_smart_health_information_log") or {}
+    # smartd writes the top-level "temperature" only when it tracks it (-W).
+    if "temperature" not in sd.values:
+        sd.add(_temp("temperature", "Temperature"), _num(h.get("temperature")))
     for key, (label, kind, kw) in _NVME_FIELDS.items():
         sd.add(kind(f"nvme_{key}", label, **kw), _num(h.get(key)))
     for key, suffix, label in (("data_units_read", "lifetime_read", "Lifetime Read"),

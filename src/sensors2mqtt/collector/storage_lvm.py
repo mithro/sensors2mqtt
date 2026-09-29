@@ -122,9 +122,14 @@ def collect_logical(filesystems, fstab_missing, md_arrays, vgs,
     degraded = resyncing = 0
     for lv, r in sorted(dm.raid.items()):
         s, m = f"raid_{slug(lv)}", f"RAID {lv}"
-        bad = sum(1 for c in r["health"] if c != "A")
+        # dm-raid health: A alive and in sync, a alive but not in sync (every
+        # leg while the set resyncs), D dead, - no device.
+        bad = sum(1 for c in r["health"] if c in "D-")
+        unsynced = sum(1 for c in r["health"] if c == "a")
         add(_text(f"{s}_health", f"{m} Health", "mdi:raid", diagnostic=False), r["health"])
-        add(_gauge(f"{s}_failed_images", f"{m} Degraded Images", icon="mdi:alert"), bad)
+        add(_gauge(f"{s}_failed_images", f"{m} Failed Images", icon="mdi:alert"), bad)
+        add(_gauge(f"{s}_unsynced_images", f"{m} Images Not In Sync", icon="mdi:sync"),
+            unsynced)
         add(_text(f"{s}_type", f"{m} Type", "mdi:raid"), r["type"])
         add(_pct(f"{s}_sync_pct", f"{m} Sync", "mdi:sync"),
             round(r["sync_pct"], 2) if r["sync_pct"] is not None else None)
@@ -132,7 +137,7 @@ def collect_logical(filesystems, fstab_missing, md_arrays, vgs,
         add(_gauge(f"{s}_mismatches", f"{m} Mismatches", icon="mdi:alert-circle"),
             r["mismatches"])
         degraded += bad > 0
-        resyncing += r["action"] not in ("idle", "frozen") or (
+        resyncing += unsynced > 0 or r["action"] not in ("idle", "frozen") or (
             r["sync_pct"] is not None and r["sync_pct"] < 100)
     total_mismatch = 0
     for lv, n in sorted(dm.integrity.items()):
@@ -193,7 +198,7 @@ class StorageLvmCollector(BasePublisher):
             fstab = Path(self.fstab).read_text()
         except OSError:
             fstab = ""
-        missing = lvm.fstab_not_mounted(fstab, {f.mountpoint for f in filesystems})
+        missing = lvm.fstab_not_mounted(fstab, lvm.all_mountpoints(self.proc_root))
         self._current = collect_logical(filesystems, missing,
                                         lvm.read_md_arrays(self.sysfs_root),
                                         lvm.read_vgs(self.backup_dir),

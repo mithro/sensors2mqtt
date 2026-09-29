@@ -74,6 +74,10 @@ class TestAta:
         assert not any(k.startswith("devstat_") for k in sd.values)
         assert sd.values["power_on_hours"] == sd.values["ata_9_power_on_hours"]
         assert sd.values["pending_sectors"] == sd.values["ata_197_current_pending_sector"]
+        # Counts that fall when sectors are remapped are not totals
+        assert sensor(sd, "pending_sectors").state_class == "measurement"
+        assert sensor(sd, "ata_197_current_pending_sector").state_class == "measurement"
+        assert sensor(sd, "ata_5_reallocated_sector_ct").state_class == "total_increasing"
 
     def test_sector_size_for_4kn_drives(self):
         doc = load("HGST_HUH721010ALE600")
@@ -116,6 +120,7 @@ class TestNvme:
         assert v["power_on_hours"] > 0
         assert v["lifetime_written"] > v["lifetime_read"] > 0
         assert sensor(sd, "lifetime_written").device_class == "data_size"
+        assert v["temperature"] == 36  # from the health log
 
 
 class TestAll:

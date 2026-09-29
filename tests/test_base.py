@@ -422,3 +422,13 @@ def test_dynamic_only_when_poll_returns_none(mock_mqtt_client):
 
     _NoPollPub([(sd, 35.0)])._poll_once(mock_mqtt_client)
     assert '"sfp_cage1_temp": 35.0' in _states(mock_mqtt_client)[-1]["payload"]
+
+
+def test_vanished_dynamic_sensor_published_as_null(mock_mqtt_client):
+    """A dynamic sensor that has gone is null (HA: unknown), not frozen."""
+    sd = SensorDef("sfp_cage1_temp", "SFP Cage 1 Temp", "°C", device_class="temperature")
+    p = _FakePub([(sd, 35.0)])
+    p._poll_once(mock_mqtt_client)
+    p._dyn = []
+    p._poll_once(mock_mqtt_client)
+    assert '"sfp_cage1_temp": null' in _states(mock_mqtt_client)[-1]["payload"]

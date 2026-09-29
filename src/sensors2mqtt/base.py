@@ -291,6 +291,12 @@ class BasePublisher(ABC):
             self._dynamic_discovered.update(sd.suffix for sd in new_dynamic)
             log.info("Published discovery for %d new dynamic sensor(s)", len(new_dynamic))
 
+        # A dynamic sensor that has gone (an SFP removed, an md resync done) is
+        # published as null (HA: unknown) rather than left out of the state,
+        # which would freeze its last value in HA.
+        for suffix in self._dynamic_discovered - values.keys():
+            values[suffix] = None
+
         publish_state(client, self.state_topic, values)
         client.publish(self.avail_topic, "online", retain=True)
         self._log_summary(values)
