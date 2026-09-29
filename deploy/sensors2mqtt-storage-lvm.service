@@ -1,0 +1,19 @@
+[Unit]
+Description=sensors2mqtt filesystem, md and LVM collector (%H)
+Documentation=https://github.com/mithro/sensors2mqtt/blob/main/docs/superpowers/specs/2026-09-30-storage-collectors-design.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Runs as root (no User=): `dmsetup status` and /etc/lvm/backup need it. It
+# reads no disk: LVM layout comes from the metadata backups, health from the
+# kernel's device-mapper status.
+ExecStart=/usr/bin/python3 -m sensors2mqtt.collector.storage_lvm
+Restart=always
+RestartSec=10
+Environment=POLL_INTERVAL=60
+EnvironmentFile=-/etc/sensors2mqtt/env
+
+[Install]
+WantedBy=multi-user.target

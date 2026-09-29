@@ -15,6 +15,8 @@ standalone systemd service on the target host.
 | **snmp** | SNMP polls to managed switches | Netgear M4300/GSM7252PS/S3300 fans/thermal/PSU, per-port PoE power |
 | **local** | sysfs/hwmon on local host | RPi CPU temp/throttle, Mellanox SN2410 ASIC/fans |
 | **ipmi_sensors** | IPMI SDR + BMC web API | CPU/board/VRM/DIMM temps, fans, voltages, per-PSU PMBus |
+| **storage** | smartd JSON state + sysfs + /proc/diskstats | one device per drive (keyed by serial): every SMART lifetime counter, I/O rates, link health, enclosure slot; SES enclosure slot map |
+| **storage_lvm** | mountinfo/statvfs, md sysfs, LVM metadata backups, `dmsetup status` | filesystem usage, md arrays, VG/LV/PV allocation, RAID/integrity/cache health |
 
 ## Install
 

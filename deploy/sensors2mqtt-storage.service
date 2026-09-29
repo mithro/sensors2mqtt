@@ -1,0 +1,20 @@
+[Unit]
+Description=sensors2mqtt storage device collector (%H)
+Documentation=https://github.com/mithro/sensors2mqtt/blob/main/docs/superpowers/specs/2026-09-30-storage-collectors-design.md
+After=network-online.target smartmontools.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Reads only world-readable sysfs, /proc/diskstats and smartd's JSON state
+# files (it never sends a command to a drive), so it needs no privileges.
+DynamicUser=yes
+ExecStart=/usr/bin/python3 -m sensors2mqtt.collector.storage
+Restart=always
+RestartSec=10
+# ~60 drives: poll less often than the default 30 s (the env file can override).
+Environment=POLL_INTERVAL=60
+EnvironmentFile=-/etc/sensors2mqtt/env
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,39 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "device": {
+    "name": "/dev/nvme0",
+    "info_name": "/dev/nvme0",
+    "protocol": "NVMe"
+  },
+  "device_info": "INTEL SSDPE2KX040T7, S/N:PHLF8094009G4P0IGN, FW:QDV10190, 4.00 TB",
+  "local_time": {
+    "time_t": 1790695177,
+    "asctime": "Wed Sep 30 00:49:37 2026 ACST"
+  },
+  "smart_status": {
+    "passed": true
+  },
+  "nvme_smart_health_information_log": {
+    "nsid": -1,
+    "critical_warning": 0,
+    "temperature": 36,
+    "available_spare": 99,
+    "available_spare_threshold": 10,
+    "percentage_used": 3,
+    "data_units_read": 174080112,
+    "data_units_written": 489052229,
+    "host_reads": 3249980364,
+    "host_writes": 7791631182,
+    "controller_busy_time": 2879,
+    "power_cycles": 151,
+    "power_on_hours": 40062,
+    "unsafe_shutdowns": 95,
+    "media_errors": 37,
+    "num_err_log_entries": 37,
+    "warning_temp_time": 0,
+    "critical_comp_time": 0
+  }
+}

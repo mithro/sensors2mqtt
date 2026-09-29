@@ -22,6 +22,7 @@ from sensors2mqtt.discovery import (
     publish_connection_diagnostic,
     publish_discovery,
     publish_state,
+    remove_discovery,
 )
 
 log = logging.getLogger(__name__)
@@ -166,6 +167,9 @@ class BasePublisher(ABC):
             Property returning the collector's module token (e.g. 'local', 'ipmi_sensors').
     """
 
+    # Ask HA for entity ids sensor.<node_id>_<suffix> (see discovery_payload).
+    default_entity_ids: bool = False
+
     def __init__(self, config: MqttConfig | None = None):
         self.config = config or MqttConfig.from_env()
         self._stop_event = threading.Event()
@@ -190,6 +194,14 @@ class BasePublisher(ABC):
     @abstractmethod
     def poll(self) -> dict | None:
         """Poll sensors. Return {suffix: value} dict, or None on failure."""
+
+    def retired_sensor_suffixes(self) -> list[str]:
+        """Suffixes this collector used to publish and no longer does.
+
+        Their discovery configs are cleared at startup, which removes the
+        entities from Home Assistant. Override to list them.
+        """
+        return []
 
     def dynamic_sensors(self) -> list[tuple[SensorDef, object]]:
         """Sensors discovered at runtime, re-probed each poll. Override to add.
@@ -232,6 +244,10 @@ class BasePublisher(ABC):
         publish_connection_diagnostic(
             client, self.device.node_id, self.module, self.device.name
         )
+        retired = self.retired_sensor_suffixes()
+        if retired:
+            remove_discovery(client, self.device.node_id, retired)
+            log.info("Removed discovery for %d retired sensor(s)", len(retired))
 
         try:
             while not self._stop_event.is_set():
@@ -261,6 +277,7 @@ class BasePublisher(ABC):
         if not self._discovery_published:
             count = publish_discovery(
                 client, self.sensors, self.device, self.state_topic, self.avail_topic,
+                default_entity_id=self.default_entity_ids,
             )
             self._discovery_published = True
             log.info("Published MQTT discovery for %d sensors", count)
@@ -269,9 +286,16 @@ class BasePublisher(ABC):
         if new_dynamic:
             publish_discovery(
                 client, new_dynamic, self.device, self.state_topic, self.avail_topic,
+                default_entity_id=self.default_entity_ids,
             )
             self._dynamic_discovered.update(sd.suffix for sd in new_dynamic)
             log.info("Published discovery for %d new dynamic sensor(s)", len(new_dynamic))
+
+        # A dynamic sensor that has gone (an SFP removed, an md resync done) is
+        # published as null (HA: unknown) rather than left out of the state,
+        # which would freeze its last value in HA.
+        for suffix in self._dynamic_discovered - values.keys():
+            values[suffix] = None
 
         publish_state(client, self.state_topic, values)
         client.publish(self.avail_topic, "online", retain=True)

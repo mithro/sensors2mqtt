@@ -5,6 +5,7 @@ from pathlib import Path
 from sensors2mqtt.collector.local.hwmon import (
     discover_hwmon_sensors,
     find_hwmon_by_name,
+    retired_hwmon_suffixes,
 )
 
 
@@ -45,11 +46,11 @@ def by_suffix(sensors, suffix):
 
 
 class TestGenericNaming:
-    def test_nvme_composite_uses_label_and_device_instance(self, tmp_path):
-        mk_hwmon(tmp_path, 0, "nvme", {"temp1_input": "39850"},
-                 device="nvme0", labels={"temp1_label": "Composite"})
+    def test_label_and_device_instance(self, tmp_path):
+        mk_hwmon(tmp_path, 0, "gpu", {"temp1_input": "39850"},
+                 device="card0", labels={"temp1_label": "Edge"})
         out = discover_hwmon_sensors(str(tmp_path), taken_suffixes=set())
-        s = by_suffix(out, "nvme0_composite")
+        s = by_suffix(out, "card0_edge")
         assert s.sensor.unit == "°C"
         assert s.sensor.device_class == "temperature"
         assert s.sensor.entity_category == "diagnostic"
@@ -69,11 +70,11 @@ class TestGenericNaming:
         assert s.source.scale == 1.0 and s.source.precision == 0
 
     def test_multi_instance_disambiguates(self, tmp_path):
-        mk_hwmon(tmp_path, 0, "nvme", {"temp1_input": "23850"}, device="nvme0",
-                 labels={"temp1_label": "Composite"})
-        mk_hwmon(tmp_path, 1, "nvme", {"temp1_input": "26850"}, device="nvme1",
-                 labels={"temp1_label": "Composite"})
-        assert {"nvme0_composite", "nvme1_composite"} <= suffixes(
+        mk_hwmon(tmp_path, 0, "gpu", {"temp1_input": "23850"}, device="card0",
+                 labels={"temp1_label": "Edge"})
+        mk_hwmon(tmp_path, 1, "gpu", {"temp1_input": "26850"}, device="card1",
+                 labels={"temp1_label": "Edge"})
+        assert {"card0_edge", "card1_edge"} <= suffixes(
             discover_hwmon_sensors(str(tmp_path), set()))
 
 
@@ -108,18 +109,30 @@ class TestChannelOverrides:
         assert "wifi_temp" in suffixes(out)
         assert by_suffix(out, "wifi_temp").sensor.name == "WiFi Temperature"
 
-    def test_drivetemp_uses_wwid(self, tmp_path):
+    def test_drivetemp_is_not_read(self, tmp_path):
+        # Each drivetemp read is an ATA SMART command; smartd is the only
+        # source of SMART data (drive temperatures come via the storage collector).
         mk_hwmon(tmp_path, 0, "drivetemp", {"temp1_input": "17000"},
                  device="0:0:1:0", wwid="naa.5000cca273c8468f")
-        assert "disk_naa_5000cca273c8468f_temp1" in suffixes(
-            discover_hwmon_sensors(str(tmp_path), set()))
+        assert discover_hwmon_sensors(str(tmp_path), set()) == []
 
-    def test_drivetemp_without_wwid_uses_device_basename(self, tmp_path):
-        # No wwid file -> instance falls back to slug(device basename), with no
-        # "disk_" prefix (the prefix is added only for the wwid-derived form).
+    def test_retired_hwmon_suffixes_use_wwid(self, tmp_path):
+        mk_hwmon(tmp_path, 0, "drivetemp", {"temp1_input": "17000"},
+                 device="0:0:1:0", wwid="naa.5000cca273c8468f")
+        assert retired_hwmon_suffixes(str(tmp_path)) == [
+            "disk_naa_5000cca273c8468f_temp1"]
+
+    def test_nvme_is_not_read_and_is_retired(self, tmp_path):
+        # Each nvme hwmon temp read is a Get Log Page command to the drive.
+        mk_hwmon(tmp_path, 0, "nvme", {"temp1_input": "39850", "temp2_input": "40850"},
+                 device="nvme0", labels={"temp1_label": "Composite"})
+        assert discover_hwmon_sensors(str(tmp_path), set()) == []
+        assert retired_hwmon_suffixes(str(tmp_path)) == [
+            "nvme0_composite", "nvme0_temp2"]
+
+    def test_retired_drivetemp_without_wwid_uses_device_basename(self, tmp_path):
         mk_hwmon(tmp_path, 0, "drivetemp", {"temp1_input": "31000"}, device="2:0:0:0")
-        assert "2_0_0_0_temp1" in suffixes(
-            discover_hwmon_sensors(str(tmp_path), set()))
+        assert retired_hwmon_suffixes(str(tmp_path)) == ["2_0_0_0_temp1"]
 
 
 class TestThermalBacked:
@@ -144,9 +157,9 @@ class TestThermalBacked:
 
 class TestDedup:
     def test_taken_suffix_skipped(self, tmp_path):
-        mk_hwmon(tmp_path, 0, "nvme", {"temp1_input": "39850"}, device="nvme0",
-                 labels={"temp1_label": "Composite"})
-        assert discover_hwmon_sensors(str(tmp_path), {"nvme0_composite"}) == []
+        mk_hwmon(tmp_path, 0, "gpu", {"temp1_input": "39850"}, device="card0",
+                 labels={"temp1_label": "Edge"})
+        assert discover_hwmon_sensors(str(tmp_path), {"card0_edge"}) == []
 
 
 class TestInstanceChannels:

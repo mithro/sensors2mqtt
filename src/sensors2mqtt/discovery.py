@@ -41,6 +41,8 @@ class SensorDef:
             state_class is set on string/enum sensors.
         icon: MDI icon override (e.g. "mdi:fan"). None uses HA default.
         entity_category: HA entity category (e.g. "diagnostic"). None for normal.
+        enabled_by_default: False creates the entity disabled in HA (the user can
+            enable it); for rarely wanted detail such as normalised SMART values.
     """
 
     suffix: str
@@ -50,6 +52,7 @@ class SensorDef:
     state_class: str | None = None
     icon: str | None = None
     entity_category: str | None = None
+    enabled_by_default: bool = True
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,8 @@ class DeviceInfo:
         connections: HA device connections for cross-integration linking.
             Typically MAC addresses: (("mac", "aa:bb:cc:dd:ee:ff"),).
         via_device: Identifier of a parent device (e.g. switch that a port belongs to).
+        sw_version: Firmware/software version shown in the HA device registry.
+        serial_number: Serial number shown in the HA device registry.
     """
 
     node_id: str
@@ -74,6 +79,8 @@ class DeviceInfo:
     configuration_url: str | None = None
     connections: tuple[tuple[str, str], ...] | None = None
     via_device: str | None = None
+    sw_version: str | None = None
+    serial_number: str | None = None
 
 
 def availability_config(*topics: str | None, mode: str = "all") -> dict:
@@ -106,19 +113,36 @@ def discovery_payload(
     device: DeviceInfo,
     state_topic: str,
     avail_topic: str,
+    extra_avail_topic: str | None = None,
+    default_entity_id: bool = False,
 ) -> dict:
-    """Build HA auto-discovery config payload for a sensor."""
+    """Build HA auto-discovery config payload for a sensor.
+
+    ``extra_avail_topic``, if given, is a second availability topic (e.g. the
+    collector's connection status, when ``avail_topic`` is per-device): the
+    entity is available only while both are ``online``.
+
+    ``default_entity_id`` asks HA to create the entity as
+    ``sensor.<node_id>_<suffix>`` rather than deriving its id from the device
+    and entity names, so dashboards can find it (applies when HA first creates
+    the entity).
+    """
     config = {
         "name": sensor.name,
         "unique_id": f"{device.node_id}_{sensor.suffix}",
         "state_topic": state_topic,
         "value_template": f"{{{{ value_json.{sensor.suffix} }}}}",
-        "unit_of_measurement": sensor.unit,
         "device": device_dict(device),
         "expire_after": EXPIRE_AFTER,
-        **availability_config(avail_topic),
+        **availability_config(avail_topic, extra_avail_topic),
         "origin": ORIGIN,
     }
+    if default_entity_id:
+        config["default_entity_id"] = f"sensor.{device.node_id}_{sensor.suffix}"
+    if sensor.unit:
+        config["unit_of_measurement"] = sensor.unit
+    if not sensor.enabled_by_default:
+        config["enabled_by_default"] = False
     if sensor.state_class:
         config["state_class"] = sensor.state_class
     if sensor.device_class:
@@ -136,13 +160,23 @@ def publish_discovery(
     device: DeviceInfo,
     state_topic: str,
     avail_topic: str,
+    extra_avail_topic: str | None = None,
+    default_entity_id: bool = False,
 ) -> int:
     """Publish HA auto-discovery configs for all sensors. Returns count published."""
     for sensor in sensors:
         config_topic = f"{DISCOVERY_PREFIX}/sensor/{device.node_id}/{sensor.suffix}/config"
-        payload = discovery_payload(sensor, device, state_topic, avail_topic)
+        payload = discovery_payload(
+            sensor, device, state_topic, avail_topic, extra_avail_topic, default_entity_id
+        )
         client.publish(config_topic, json.dumps(payload), retain=True)
     return len(sensors)
+
+
+def remove_discovery(client: mqtt.Client, node_id: str, suffixes: list[str]) -> None:
+    """Delete HA entities by publishing empty retained discovery configs."""
+    for suffix in suffixes:
+        client.publish(f"{DISCOVERY_PREFIX}/sensor/{node_id}/{suffix}/config", "", retain=True)
 
 
 def publish_state(client: mqtt.Client, state_topic: str, values: dict) -> None:
@@ -166,6 +200,10 @@ def device_dict(device: DeviceInfo) -> dict:
         d["connections"] = [list(c) for c in device.connections]
     if device.via_device:
         d["via_device"] = device.via_device
+    if device.sw_version:
+        d["sw_version"] = device.sw_version
+    if device.serial_number:
+        d["serial_number"] = device.serial_number
     return d
 
 

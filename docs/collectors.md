@@ -136,3 +136,37 @@ uv run python -m sensors2mqtt.collector.ipmi_sensors
 
 Sensors include CPU temperatures, board temperatures, VRM temperatures,
 DIMM temperatures, fan speeds, voltages, and per-PSU input/output power.
+
+## Storage collectors
+
+Packages `sensors2mqtt-storage` and `sensors2mqtt-storage-lvm`. Design and reasons:
+[storage collectors design](superpowers/specs/2026-09-30-storage-collectors-design.md).
+
+**`sensors2mqtt-storage`** (unprivileged) publishes one Home Assistant device
+per drive, keyed by the drive's serial number (`disk_<serial>`), so a drive
+that moves to another slot or host keeps its device and history; the host that
+has it now is its `via_device`. Per drive: every SMART lifetime counter (ATA
+attributes and Device Statistics, SCSI error counters, start-stop cycles and
+defect lists, NVMe health log), temperature, I/O rates and utilisation, link
+rate and link errors, the enclosure slot it is in, and what uses it (md / LVM /
+mount). Each SES enclosure is also a device, with the state of every slot
+(occupied, empty, phantom: the enclosure sees a drive the host doesn't).
+
+SMART data comes **only** from smartd's JSON state files: the collector never
+sends a command to a drive. It needs a smartd that writes them, such as the
+[mithro/smartmontools](https://github.com/mithro/smartmontools) build
+(`--with-jsonstate` on by default). Drives that must get no SMART commands at
+all are listed with `-d ignore` in `/etc/smartd.conf`.
+
+**`sensors2mqtt-storage-lvm`** (root) publishes on the host's device:
+filesystem usage (and fstab entries that aren't mounted), md arrays, LVM VG/LV/PV
+sizes and allocation (from `/etc/lvm/backup`, so no disk is read), and live
+RAID health, sync progress, integrity mismatches and cache usage from
+`dmsetup status`, with roll-ups for the problems worth an alert.
+
+```sh
+sudo apt install sensors2mqtt-storage sensors2mqtt-storage-lvm
+sudo systemctl enable --now sensors2mqtt-storage sensors2mqtt-storage-lvm
+```
+
+Both poll every 60 s (`POLL_INTERVAL` in `/etc/sensors2mqtt/env` overrides).

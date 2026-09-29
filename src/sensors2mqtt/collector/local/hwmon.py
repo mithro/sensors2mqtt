@@ -164,7 +164,15 @@ PERIPHERAL_HWMON: dict[str, DriverSpec] = {
     # Friendlier names.
     "ath11k_hwmon": DriverSpec(
         channels={"temp1": ChannelSpec(suffix="wifi_temp", name="WiFi Temperature")}),
-    "drivetemp": DriverSpec(instance_id=_drivetemp_instance),
+    # Not read: every drivetemp read sends an ATA SMART/SCT command to the
+    # drive, and smartd is the only process that may (drive temperatures come
+    # from its JSON state via the storage collector). Kept for
+    # retired_drivetemp_suffixes(), which removes the old entities.
+    "drivetemp": DriverSpec(include=False, instance_id=_drivetemp_instance),
+    # Not read either: every nvme hwmon temp*_input read sends a Get Log Page
+    # (SMART/Health) admin command to the drive. NVMe temperatures come from
+    # smartd via the storage collector.
+    "nvme": DriverSpec(include=False),
     # RPi specialization naming (Task 3) - primary (non-diagnostic) sensors.
     "rp1_adc": DriverSpec(channels={
         "in1": ChannelSpec(suffix="rp1_v1", name="RP1 Voltage 1", diagnostic=False),
@@ -210,6 +218,29 @@ def _is_thermal_backed(hw: Path, name: str, thermal_types: set[str]) -> bool:
         if "/thermal/thermal_zone" in real or os.path.basename(real).startswith("thermal_zone"):
             return True
     return _slug(name) in thermal_types
+
+
+def retired_hwmon_suffixes(sysfs_root: str) -> list[str]:
+    """Suffixes that hwmon drivers no longer read (``include=False``, e.g.
+    drivetemp and nvme) had when they were published, so their Home Assistant
+    entities can be removed. Named exactly as discover_hwmon_sensors() named
+    them before the driver was excluded."""
+    out = []
+    for hw in iter_hwmon(Path(sysfs_root) / "sys/class/hwmon"):
+        name = _read(hw / "name")
+        spec = PERIPHERAL_HWMON.get(name or "")
+        if spec is None or spec.include:
+            continue
+        instance = spec.instance_id(hw) if spec.instance_id else (
+            _slug(_device_basename(hw) or name))
+        for f in sorted(hw.iterdir()):
+            m = CHAN_RE.match(f.name)
+            if not m:
+                continue
+            chan = f"{m.group(1)}{m.group(2)}"
+            label = _read(hw / f"{chan}_label")
+            out.append(_slug(f"{instance}_{_slug(label) if label else chan}"))
+    return out
 
 
 def discover_hwmon_sensors(sysfs_root: str, taken_suffixes: Iterable[str]) -> list[LocalSensor]:
