@@ -1,0 +1,94 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "device": {
+    "name": "/dev/sdb",
+    "info_name": "/dev/sdb",
+    "protocol": "SCSI"
+  },
+  "device_info": "[SEAGATE  ST10000NM0226    KTB5], lu id: 0x5000c500a6c9acb3, S/N: ZA2910WX0000C905S5J8, 9.93 TB",
+  "local_time": {
+    "time_t": 1790695177,
+    "asctime": "Wed Sep 30 00:49:37 2026 ACST"
+  },
+  "smart_status": {
+    "passed": true
+  },
+  "temperature": {
+    "current": 38
+  },
+  "scsi_start_stop_cycle_counter": {
+    "year_of_manufacture": "2018",
+    "week_of_manufacture": "34",
+    "specified_cycle_count_over_device_lifetime": 50000,
+    "accumulated_start_stop_cycles": 245,
+    "specified_load_unload_count_over_device_lifetime": 600000,
+    "accumulated_load_unload_cycles": 24247
+  },
+  "power_on_time": {
+    "hours": 41592,
+    "minutes": 16
+  },
+  "scsi_background_scan": {
+    "status": {
+      "value": 0,
+      "number_scans_performed": 0,
+      "number_medium_scans_performed": 0
+    }
+  },
+  "scsi_grown_defect_list": 0,
+  "scsi_sas_port_0": {
+    "phy_0": {
+      "identifier": 0,
+      "negotiated_logical_link_rate": "phy enabled; 12 Gbps",
+      "invalid_dword_count": 0,
+      "running_disparity_error_count": 0,
+      "loss_of_dword_synchronization_count": 2,
+      "phy_reset_problem_count": 0
+    }
+  },
+  "scsi_sas_port_1": {
+    "phy_1": {
+      "identifier": 1,
+      "negotiated_logical_link_rate": "phy enabled; unknown",
+      "invalid_dword_count": 0,
+      "running_disparity_error_count": 0,
+      "loss_of_dword_synchronization_count": 0,
+      "phy_reset_problem_count": 0
+    }
+  },
+  "scsi_error_counter_log": {
+    "read": {
+      "errors_corrected_by_eccfast": 1191557762,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 1191557762,
+      "correction_algorithm_invocations": 0,
+      "gigabytes_processed": "1327545.173",
+      "total_uncorrected_errors": 0
+    },
+    "write": {
+      "errors_corrected_by_eccfast": 0,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 0,
+      "correction_algorithm_invocations": 0,
+      "gigabytes_processed": "222731.389",
+      "total_uncorrected_errors": 0
+    },
+    "verify": {
+      "errors_corrected_by_eccfast": 0,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 0,
+      "correction_algorithm_invocations": 0,
+      "gigabytes_processed": "0.000",
+      "total_uncorrected_errors": 0
+    },
+    "non_medium_error": {
+      "count": 191
+    }
+  }
+}

@@ -1,0 +1,317 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "device": {
+    "name": "/dev/sdz",
+    "info_name": "/dev/sdz [SAT]",
+    "protocol": "ATA"
+  },
+  "device_info": "Samsung SSD 850 PRO 1TB, S/N:S2BBNWAJ125495K, WWN:5-002538-870181f8d, FW:EXM02B6Q, 1.02 TB",
+  "local_time": {
+    "time_t": 1790695177,
+    "asctime": "Wed Sep 30 00:49:37 2026 ACST"
+  },
+  "smart_status": {
+    "passed": true
+  },
+  "ata_smart_attributes": {
+    "table": [
+      {
+        "id": 5,
+        "name": "Reallocated_Sector_Ct",
+        "value": 100,
+        "worst": 100,
+        "thresh": 10,
+        "when_failed": "",
+        "flags": {
+          "value": 51,
+          "prefailure": true,
+          "updated_online": true,
+          "performance": false,
+          "error_rate": false,
+          "event_count": true,
+          "auto_keep": true
+        },
+        "raw": {
+          "value": 0,
+          "string": "0"
+        }
+      },
+      {
+        "id": 9,
+        "name": "Power_On_Hours",
+        "value": 94,
+        "worst": 94,
+        "thresh": 0,
+        "when_failed": "",
+        "flags": {
+          "value": 50,
+          "prefailure": false,
+          "updated_online": true,
+          "performance": false,
+          "error_rate": false,
+          "event_count": true,
+          "auto_keep": true
+        },
+        "raw": {
+          "value": 27190,
+          "string": "27190"
+        }
+      },
+      {
+        "id": 12,
+        "name": "Power_Cycle_Count",
+        "value": 99,
+        "worst": 99,
+        "thresh": 0,
+        "when_failed": "",
+        "flags": {
+          "value": 50,
+          "prefailure": false,
+          "updated_online": true,
+          "performance": false,
+          "error_rate": false,
+          "event_count": true,
+          "auto_keep": true
+        },
+        "raw": {
+          "value": 262,
+          "string": "262"
+        }
+      },
+      {
+        "id": 177,
+        "name": "Wear_Leveling_Count",
+        "value": 98,
+        "worst": 98,
+        "thresh": 0,
+        "when_failed": "",
+        "flags": {
+          "value": 19,
+          "prefailure": true,
+          "updated_online": true,
+          "performance": false,
+          "error_rate": false,
+          "event_count": true,
+          "auto_keep": false
+        },
+        "raw": {
+          "value": 101,
+          "string": "101"
+        }
+      },
+      {
+        "id": 179,
+        "name": "Used_Rsvd_Blk_Cnt_Tot",
+        "value": 100,
+        "worst": 100,
+        "thresh": 10,
+        "when_failed": "",
+        "flags": {
+          "value": 19,
+          "prefailure": true,
+          "updated_online": true,
+          "performance": false,
+          "error_rate": false,
+          "event_count": true,
+          "auto_keep": false
+        },
+        "raw": {
+          "value": 0,
+          "string": "0"
+        }
+      },
+      {
+        "id": 181,
+        "name": "Program_Fail_Cnt_Total",
+        "value": 100,
+        "worst": 100,
+        "thresh": 10,
+        "when_failed": "",
+        "flags": {
+          "value": 50,
+          "prefailure": false,
+          "updated_online": true,
+          "performance": false,
+          "error_rate": false,
+          "event_count": true,
+          "auto_keep": true
+        },
+        "raw": {
+          "value": 0,
+          "string": "0"
+        }
+      },
+      {
+        "id": 182,
+        "name": "Erase_Fail_Count_Total",
+        "value": 100,
+        "worst": 100,
+        "thresh": 10,
+        "when_failed": "",
+        "flags": {
+          "value": 50,
+          "prefailure": false,
+          "updated_online": true,
+          "performance": false,
+          "error_rate": false,
+          "event_count": true,
+          "auto_keep": true
+        },
+        "raw": {
+          "value": 0,
+          "string": "0"
+        }
+      },
+      {
+        "id": 183,
+        "name": "Runtime_Bad_Block",
+        "value": 100,
+        "worst": 100,
+        "thresh": 10,
+        "when_failed": "",
+        "flags": {
+          "value": 19,
+          "prefailure": true,
+          "updated_online": true,
+          "performance": false,
+          "error_rate": false,
+          "event_count": true,
+          "auto_keep": false
+        },
+        "raw": {
+          "value": 0,
+          "string": "0"
+        }
+      },
+      {
+        "id": 187,
+        "name": "Uncorrectable_Error_Cnt",
+        "value": 100,
+        "worst": 100,
+        "thresh": 0,
+        "when_failed": "",
+        "flags": {
+          "value": 50,
+          "prefailure": false,
+          "updated_online": true,
+          "performance": false,
+          "error_rate": false,
+          "event_count": true,
+          "auto_keep": true
+        },
+        "raw": {
+          "value": 0,
+          "string": "0"
+        }
+      },
+      {
+        "id": 190,
+        "name": "Airflow_Temperature_Cel",
+        "value": 61,
+        "worst": 44,
+        "thresh": 0,
+        "when_failed": "",
+        "flags": {
+          "value": 50,
+          "prefailure": false,
+          "updated_online": true,
+          "performance": false,
+          "error_rate": false,
+          "event_count": true,
+          "auto_keep": true
+        },
+        "raw": {
+          "value": 39,
+          "string": "39"
+        }
+      },
+      {
+        "id": 195,
+        "name": "ECC_Error_Rate",
+        "value": 200,
+        "worst": 200,
+        "thresh": 0,
+        "when_failed": "",
+        "flags": {
+          "value": 26,
+          "prefailure": false,
+          "updated_online": true,
+          "performance": false,
+          "error_rate": true,
+          "event_count": true,
+          "auto_keep": false
+        },
+        "raw": {
+          "value": 0,
+          "string": "0"
+        }
+      },
+      {
+        "id": 199,
+        "name": "CRC_Error_Count",
+        "value": 100,
+        "worst": 100,
+        "thresh": 0,
+        "when_failed": "",
+        "flags": {
+          "value": 62,
+          "prefailure": false,
+          "updated_online": true,
+          "performance": true,
+          "error_rate": true,
+          "event_count": true,
+          "auto_keep": true
+        },
+        "raw": {
+          "value": 0,
+          "string": "0"
+        }
+      },
+      {
+        "id": 235,
+        "name": "POR_Recovery_Count",
+        "value": 99,
+        "worst": 99,
+        "thresh": 0,
+        "when_failed": "",
+        "flags": {
+          "value": 18,
+          "prefailure": false,
+          "updated_online": true,
+          "performance": false,
+          "error_rate": false,
+          "event_count": true,
+          "auto_keep": false
+        },
+        "raw": {
+          "value": 235,
+          "string": "235"
+        }
+      },
+      {
+        "id": 241,
+        "name": "Total_LBAs_Written",
+        "value": 99,
+        "worst": 99,
+        "thresh": 0,
+        "when_failed": "",
+        "flags": {
+          "value": 50,
+          "prefailure": false,
+          "updated_online": true,
+          "performance": false,
+          "error_rate": false,
+          "event_count": true,
+          "auto_keep": true
+        },
+        "raw": {
+          "value": 24121357480,
+          "string": "24121357480"
+        }
+      }
+    ]
+  }
+}
