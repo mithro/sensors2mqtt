@@ -167,6 +167,9 @@ class BasePublisher(ABC):
             Property returning the collector's module token (e.g. 'local', 'ipmi_sensors').
     """
 
+    # Ask HA for entity ids sensor.<node_id>_<suffix> (see discovery_payload).
+    default_entity_ids: bool = False
+
     def __init__(self, config: MqttConfig | None = None):
         self.config = config or MqttConfig.from_env()
         self._stop_event = threading.Event()
@@ -274,6 +277,7 @@ class BasePublisher(ABC):
         if not self._discovery_published:
             count = publish_discovery(
                 client, self.sensors, self.device, self.state_topic, self.avail_topic,
+                default_entity_id=self.default_entity_ids,
             )
             self._discovery_published = True
             log.info("Published MQTT discovery for %d sensors", count)
@@ -282,6 +286,7 @@ class BasePublisher(ABC):
         if new_dynamic:
             publish_discovery(
                 client, new_dynamic, self.device, self.state_topic, self.avail_topic,
+                default_entity_id=self.default_entity_ids,
             )
             self._dynamic_discovered.update(sd.suffix for sd in new_dynamic)
             log.info("Published discovery for %d new dynamic sensor(s)", len(new_dynamic))

@@ -94,6 +94,7 @@ def test_publish_discovery_once_then_on_change(mock_mqtt_client, monkeypatch):
     assert [a["topic"] for a in cfg["availability"]] == [
         "sensors2mqtt/disk_zhz598dy/storage/status", "sensors2mqtt/big_storage/storage/status"]
     assert cfg["device"]["serial_number"] == "ZHZ598DY"
+    assert cfg["default_entity_id"] == "sensor.disk_zhz598dy_location"
 
     mock_mqtt_client.published.clear()
     c.publish(mock_mqtt_client, [pub])

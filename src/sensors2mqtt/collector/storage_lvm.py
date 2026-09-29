@@ -162,6 +162,8 @@ def collect_logical(filesystems, fstab_missing, md_arrays, vgs,
 class StorageLvmCollector(BasePublisher):
     """Filesystems, md arrays and LVM on this host."""
 
+    default_entity_ids = True
+
     def __init__(self, config=None, sysfs_root: str = "/", proc_root: str = "/",
                  backup_dir: str = "/etc/lvm/backup", fstab: str = "/etc/fstab"):
         super().__init__(config)

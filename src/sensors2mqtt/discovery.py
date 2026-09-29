@@ -114,12 +114,18 @@ def discovery_payload(
     state_topic: str,
     avail_topic: str,
     extra_avail_topic: str | None = None,
+    default_entity_id: bool = False,
 ) -> dict:
     """Build HA auto-discovery config payload for a sensor.
 
     ``extra_avail_topic``, if given, is a second availability topic (e.g. the
     collector's connection status, when ``avail_topic`` is per-device): the
     entity is available only while both are ``online``.
+
+    ``default_entity_id`` asks HA to create the entity as
+    ``sensor.<node_id>_<suffix>`` rather than deriving its id from the device
+    and entity names, so dashboards can find it (applies when HA first creates
+    the entity).
     """
     config = {
         "name": sensor.name,
@@ -131,6 +137,8 @@ def discovery_payload(
         **availability_config(avail_topic, extra_avail_topic),
         "origin": ORIGIN,
     }
+    if default_entity_id:
+        config["default_entity_id"] = f"sensor.{device.node_id}_{sensor.suffix}"
     if sensor.unit:
         config["unit_of_measurement"] = sensor.unit
     if not sensor.enabled_by_default:
@@ -153,12 +161,13 @@ def publish_discovery(
     state_topic: str,
     avail_topic: str,
     extra_avail_topic: str | None = None,
+    default_entity_id: bool = False,
 ) -> int:
     """Publish HA auto-discovery configs for all sensors. Returns count published."""
     for sensor in sensors:
         config_topic = f"{DISCOVERY_PREFIX}/sensor/{device.node_id}/{sensor.suffix}/config"
         payload = discovery_payload(
-            sensor, device, state_topic, avail_topic, extra_avail_topic
+            sensor, device, state_topic, avail_topic, extra_avail_topic, default_entity_id
         )
         client.publish(config_topic, json.dumps(payload), retain=True)
     return len(sensors)

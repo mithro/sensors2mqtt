@@ -300,7 +300,8 @@ class StorageCollector:
                 todo = [s for s in pub.sensors if s.suffix not in done]
             if todo:
                 publish_discovery(client, todo, pub.device, self.state_topic(node),
-                                  self.status_topic(node), self.connection_topic)
+                                  self.status_topic(node), self.connection_topic,
+                                  default_entity_id=True)
             self._published[node] = (pub.device, done | {s.suffix for s in todo})
             publish_state(client, self.state_topic(node), pub.values)
             client.publish(self.status_topic(node), "online", retain=True)
