@@ -220,6 +220,12 @@ class LocalCollector(BasePublisher):
             discover_hwmon_sensors(str(self._sysfs_root), taken_suffixes=taken)
         )
 
+    def retired_sensor_suffixes(self) -> list[str]:
+        """drivetemp temperatures are no longer read (see hwmon.py): remove them."""
+        from sensors2mqtt.collector.local.hwmon import retired_drivetemp_suffixes
+
+        return retired_drivetemp_suffixes(str(self._sysfs_root))
+
     def _find_hwmon_by_name(self, driver_name: str):
         """Find hwmon directory by driver name (shared primitive)."""
         from sensors2mqtt.collector.local.hwmon import find_hwmon_by_name

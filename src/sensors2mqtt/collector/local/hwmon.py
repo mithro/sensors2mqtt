@@ -164,7 +164,11 @@ PERIPHERAL_HWMON: dict[str, DriverSpec] = {
     # Friendlier names.
     "ath11k_hwmon": DriverSpec(
         channels={"temp1": ChannelSpec(suffix="wifi_temp", name="WiFi Temperature")}),
-    "drivetemp": DriverSpec(instance_id=_drivetemp_instance),
+    # Not read: every drivetemp read sends an ATA SMART/SCT command to the
+    # drive, and smartd is the only process that may (drive temperatures come
+    # from its JSON state via the storage collector). Kept for
+    # retired_drivetemp_suffixes(), which removes the old entities.
+    "drivetemp": DriverSpec(include=False, instance_id=_drivetemp_instance),
     # RPi specialization naming (Task 3) - primary (non-diagnostic) sensors.
     "rp1_adc": DriverSpec(channels={
         "in1": ChannelSpec(suffix="rp1_v1", name="RP1 Voltage 1", diagnostic=False),
@@ -210,6 +214,22 @@ def _is_thermal_backed(hw: Path, name: str, thermal_types: set[str]) -> bool:
         if "/thermal/thermal_zone" in real or os.path.basename(real).startswith("thermal_zone"):
             return True
     return _slug(name) in thermal_types
+
+
+def retired_drivetemp_suffixes(sysfs_root: str) -> list[str]:
+    """Suffixes the drivetemp temperatures had when they were published, so
+    their Home Assistant entities can be removed."""
+    out = []
+    for hw in iter_hwmon(Path(sysfs_root) / "sys/class/hwmon"):
+        if _read(hw / "name") != "drivetemp":
+            continue
+        instance = _drivetemp_instance(hw)
+        for f in sorted(hw.iterdir()):
+            m = CHAN_RE.match(f.name)
+            if m and m.group(1) == "temp":
+                label = _read(hw / f"temp{m.group(2)}_label")
+                out.append(_slug(f"{instance}_{_slug(label) if label else 'temp' + m.group(2)}"))
+    return out
 
 
 def discover_hwmon_sensors(sysfs_root: str, taken_suffixes: Iterable[str]) -> list[LocalSensor]:

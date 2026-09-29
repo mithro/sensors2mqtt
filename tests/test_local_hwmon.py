@@ -5,6 +5,7 @@ from pathlib import Path
 from sensors2mqtt.collector.local.hwmon import (
     discover_hwmon_sensors,
     find_hwmon_by_name,
+    retired_drivetemp_suffixes,
 )
 
 
@@ -108,18 +109,22 @@ class TestChannelOverrides:
         assert "wifi_temp" in suffixes(out)
         assert by_suffix(out, "wifi_temp").sensor.name == "WiFi Temperature"
 
-    def test_drivetemp_uses_wwid(self, tmp_path):
+    def test_drivetemp_is_not_read(self, tmp_path):
+        # Each drivetemp read is an ATA SMART command; smartd is the only
+        # source of SMART data (drive temperatures come via the storage collector).
         mk_hwmon(tmp_path, 0, "drivetemp", {"temp1_input": "17000"},
                  device="0:0:1:0", wwid="naa.5000cca273c8468f")
-        assert "disk_naa_5000cca273c8468f_temp1" in suffixes(
-            discover_hwmon_sensors(str(tmp_path), set()))
+        assert discover_hwmon_sensors(str(tmp_path), set()) == []
 
-    def test_drivetemp_without_wwid_uses_device_basename(self, tmp_path):
-        # No wwid file -> instance falls back to slug(device basename), with no
-        # "disk_" prefix (the prefix is added only for the wwid-derived form).
+    def test_retired_drivetemp_suffixes_use_wwid(self, tmp_path):
+        mk_hwmon(tmp_path, 0, "drivetemp", {"temp1_input": "17000"},
+                 device="0:0:1:0", wwid="naa.5000cca273c8468f")
+        assert retired_drivetemp_suffixes(str(tmp_path)) == [
+            "disk_naa_5000cca273c8468f_temp1"]
+
+    def test_retired_drivetemp_without_wwid_uses_device_basename(self, tmp_path):
         mk_hwmon(tmp_path, 0, "drivetemp", {"temp1_input": "31000"}, device="2:0:0:0")
-        assert "2_0_0_0_temp1" in suffixes(
-            discover_hwmon_sensors(str(tmp_path), set()))
+        assert retired_drivetemp_suffixes(str(tmp_path)) == ["2_0_0_0_temp1"]
 
 
 class TestThermalBacked:
