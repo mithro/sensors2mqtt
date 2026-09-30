@@ -87,6 +87,15 @@ def fake_host(root: Path) -> None:
     mk_nvme_at(root, p1, "0000:b1:00.0", "nvme0", "SWITCHED", "nvme0n1")
     mk_hotplug(root, "0-7", "0000:b1:00", 1)
     mk_hotplug(root, "0-8", "0000:b2:00", 0)
+    # A card that is present but didn't come up: a phantom bay
+    mk_port(root, SWITCH, "0000:b0:0a.0", 0xB3)
+    mk_hotplug(root, "0-9", "0000:b3:00", 1)
+    # A NIC in a hot-plug slot is not a bay
+    mk_port(root, SWITCH, "0000:b0:0b.0", 0xB4)
+    mk_hotplug(root, "0-10", "0000:b4:00", 1)
+    nic = root / "sys/bus/pci/devices/0000:b4:00.0"
+    nic.mkdir()
+    (nic / "class").write_text("0x020000\n")
     rp = mk_port(root, "sys/devices/pci0000:17", "0000:17:00.0", 0x18)
     (rp / "numa_node").write_text("0\n")
     mk_nvme_at(root, rp, "0000:18:00.0", "nvme1", "ONBOARD", "nvme1n1")
@@ -95,11 +104,14 @@ def fake_host(root: Path) -> None:
 def test_nvme_bays(tmp_path):
     fake_host(tmp_path)
     bays = nvme_bays(str(tmp_path), SLOTS)
-    assert [(b.key, b.label, b.controller, b.hotplug_slot) for b in bays] == [
-        ("0000:18:00", "CPU1 root port 17:00.0", "nvme1", None),
-        ("0000:b1:00", "CPU2 SLOT3 PCI-E 3.0 X16 port 1", "nvme0", "0-7"),
-        ("0000:b2:00", "CPU2 SLOT3 PCI-E 3.0 X16 port 2", None, "0-8")]
+    assert [(b.key, b.label, b.controller, b.hotplug_slot, b.occupied) for b in bays] == [
+        ("0000:18:00", "CPU1 root port 17:00.0", "nvme1", None, True),
+        ("0000:b1:00", "CPU2 SLOT3 PCI-E 3.0 X16 port 1", "nvme0", "0-7", True),
+        ("0000:b2:00", "CPU2 SLOT3 PCI-E 3.0 X16 port 2", None, "0-8", False),
+        ("0000:b3:00", "CPU2 SLOT3 PCI-E 3.0 X16 port 3", None, "0-9", True)]
     assert bays[0].link == "8.0 GT/s PCIe x4"
+    # The slot number is the PCI position, not a count
+    assert [b.number for b in bays] == [0x18 * 32, 0xB1 * 32, 0xB2 * 32, 0xB3 * 32]
 
 
 def test_nvme_drives_are_in_one_enclosure(tmp_path):
@@ -107,12 +119,50 @@ def test_nvme_drives_are_in_one_enclosure(tmp_path):
     by_serial = {d.serial: d for d in discover_drives(str(tmp_path), str(tmp_path), SLOTS)}
     d = by_serial["SWITCHED"]
     assert (d.enclosure, d.slot, d.slot_name, d.pcie_link) == (
-        "nvme", 1, "CPU2 SLOT3 PCI-E 3.0 X16 port 1", "8.0 GT/s PCIe x4")
-    assert by_serial["ONBOARD"].slot == 0
+        "nvme", 0xB1 * 32, "CPU2 SLOT3 PCI-E 3.0 X16 port 1", "8.0 GT/s PCIe x4")
+    assert by_serial["ONBOARD"].slot == 0x18 * 32
     e = discover_nvme_enclosure("h", str(tmp_path), SLOTS)
     assert (e.id, e.logical_id, e.model) == ("nvme", "h_nvme", "NVMe")
     assert [(s.number, s.status, s.serial) for s in e.slots] == [
-        (0, "OK", "ONBOARD"), (1, "OK", "SWITCHED"), (2, "not installed", None)]
+        (0x18 * 32, "OK", "ONBOARD"), (0xB1 * 32, "OK", "SWITCHED"),
+        (0xB2 * 32, "not installed", None), (0xB3 * 32, "OK", None)]
+
+
+def test_bay_numbers_survive_a_drive_leaving(tmp_path):
+    fake_host(tmp_path)
+    before = {b.key: b.number for b in nvme_bays(str(tmp_path), SLOTS)}
+    os.unlink(tmp_path / "sys/class/nvme/nvme1")  # the onboard drive dies
+    after = {b.key: b.number for b in nvme_bays(str(tmp_path), SLOTS)}
+    assert "0000:18:00" not in after
+    assert all(before[k] == v for k, v in after.items())
+
+
+def test_card_in_a_named_slot_vmd_and_multipath(tmp_path):
+    # An NVMe card straight in CPU1 SLOT2 (SMBIOS gives the NVMe's address)
+    rp = mk_port(tmp_path, "sys/devices/pci0000:17", "0000:17:00.0", 0x18)
+    mk_nvme_at(tmp_path, rp, "0000:18:00.0", "nvme0", "INSLOT", "nvme0n1")
+    # Two drives behind Intel VMD (PCI domain 10000)
+    vmd = "sys/devices/pci0000:64/0000:64:05.5/pci10000:00"
+    for i, (bridge, bus) in enumerate((("10000:00:02.0", 1), ("10000:00:03.0", 2))):
+        p = mk_port(tmp_path, vmd, bridge, bus)
+        mk_nvme_at(tmp_path, p, f"10000:0{bus}:00.0", f"nvme{i + 1}", f"VMD{i}", f"nvme{i + 1}n1")
+    slots = [SmbiosSlot("CPU1 SLOT2 PCI-E 3.0 X4", "0000:18:00.0")]
+    bays = nvme_bays(str(tmp_path), slots)
+    assert [(b.key, b.label, b.controller) for b in bays] == [
+        ("0000:18:00", "CPU1 SLOT2 PCI-E 3.0 X4", "nvme0"),
+        ("10000:01:00", "root port 00:02.0", "nvme1"),
+        ("10000:02:00", "root port 00:03.0", "nvme2")]
+    # Native multipath: the namespace's device is the subsystem
+    subsys = tmp_path / "sys/devices/virtual/nvme-subsystem/nvme-subsys0"
+    subsys.mkdir(parents=True)
+    os.symlink(tmp_path / "sys/class/nvme/nvme0", subsys / "nvme0")
+    (subsys / "serial").write_text("INSLOT\n")
+    (subsys / "model").write_text("M\n")
+    blk = tmp_path / "sys/block/nvme0n1/device"
+    os.unlink(blk)
+    os.symlink(subsys, blk)
+    by_serial = {d.serial: d for d in discover_drives(str(tmp_path), str(tmp_path), slots)}
+    assert by_serial["INSLOT"].slot_name == "CPU1 SLOT2 PCI-E 3.0 X4"
 
 
 def test_board_slot_of_a_device_behind_the_slot():

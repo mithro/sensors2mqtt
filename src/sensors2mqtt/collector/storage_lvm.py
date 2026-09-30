@@ -103,7 +103,9 @@ def collect_logical(filesystems, fstab_missing, md_arrays, vgs, dm,
     """Sensors and values for one poll (pure: easy to test).
 
     ``disks_of(dev)`` lists the drives under a block device; ``fs_backing(fs)``
-    is ``("vg/lv", None)`` for a filesystem on an LV, else ``(None, dev)``.
+    is ``("vg/lv" or None, block device or None)``. The drives of an LV come
+    from its layout (a missing PV is still listed), or the device's slaves if
+    its VG has no metadata backup.
     """
     out: list[tuple[SensorDef, object]] = []
 
@@ -324,10 +326,11 @@ class StorageLvmCollector(BasePublisher):
         blk = Path(self.sysfs_root) / "sys/dev/block" / fs.devno
         dm_name = lvm._read(blk / "dm/name")
         dm_uuid = lvm._read(blk / "dm/uuid") or ""
-        if dm_name and dm_uuid.startswith("LVM-"):
-            return lvm.dm_lv_name(dm_name), None
         real = os.path.realpath(blk)
-        return None, (os.path.basename(real) if os.path.exists(real) else None)
+        dev = os.path.basename(real) if os.path.exists(real) else None
+        if dm_name and dm_uuid.startswith("LVM-"):
+            return lvm.dm_lv_name(dm_name), dev
+        return None, dev
 
     def dynamic_sensors(self) -> list[tuple[SensorDef, object]]:
         return self._current

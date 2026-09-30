@@ -58,8 +58,11 @@ in the slot, so empty and phantom slots show up.
 
 **NVMe enclosure and slot names** (added 2026-09-30): all of a host's NVMe
 drives are in one virtual enclosure (`encl_<host>_nvme`, id `nvme`). Its bays
-are every PCIe position with an NVMe controller plus every empty hot-plug port
-(`/sys/bus/pci/slots/*/adapter`), in PCI address order. Bays and controllers
+are every PCIe position with an NVMe controller plus every hot-plug port
+(`/sys/bus/pci/slots/*/adapter`) with no other kind of card in it (a card that
+is present but didn't come up is a phantom slot). A bay's slot number is its
+PCI position, `(domain * 256 + bus) * 32 + device`, so it doesn't change when
+another drive disappears. Bays and controllers
 are named from the SMBIOS type 9 (System Slot) records, which give the
 board's silkscreen name and the PCI address of the device in each slot: a port
 of a switch card is `<slot> port <n>` (downstream ports in PCI order), a CPU

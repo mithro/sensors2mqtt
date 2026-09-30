@@ -18,7 +18,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-_PCI_ADDR_RE = re.compile(r"^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$")
+# Domains are 4 hex digits, or 5+ behind Intel VMD ("10000:01:00.0")
+_PCI_ADDR_RE = re.compile(r"^[0-9a-f]{4,}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$")
+_NVME_CLASS = "0x010802"
 
 
 @dataclass(frozen=True)
@@ -116,7 +118,7 @@ def port_label(port_real: str, slots: list[SmbiosSlot], sysfs_root: str = "/") -
     numa = _read(Path(sysfs_root) / "sys/bus/pci/devices" / port / "numa_node")
     cpu = f"CPU{int(numa) + 1} " if numa and numa.lstrip("-").isdigit() and int(numa) >= 0 \
         else ""
-    return f"{cpu}root port {port[5:]}"
+    return f"{cpu}root port {port.split(':', 1)[1]}"
 
 
 @dataclass
@@ -126,6 +128,14 @@ class Bay:
     controller: str | None  # NVMe controller in it ("nvme0"), None if empty
     link: str | None  # "8.0 GT/s PCIe x4"
     hotplug_slot: str | None  # /sys/bus/pci/slots name
+    occupied: bool = False  # a card is present (hot-plug presence detect)
+
+    @property
+    def number(self) -> int:
+        """A slot number that is the bay's PCI position, so it stays the same
+        whichever other bays have a drive: (domain * 256 + bus) * 32 + device."""
+        domain, bus, dev = self.key.split(":")
+        return (int(domain, 16) * 256 + int(bus, 16)) * 32 + int(dev, 16)
 
 
 def _link(dev: Path) -> str | None:
@@ -136,10 +146,12 @@ def _link(dev: Path) -> str | None:
 
 
 def nvme_bays(sysfs_root: str = "/", slots: list[SmbiosSlot] | None = None) -> list[Bay]:
-    """Every NVMe controller's PCIe position plus every empty hot-plug port."""
+    """Every NVMe controller's PCIe position plus every hot-plug port that has
+    no other kind of card in it (empty, or a card that didn't come up)."""
     root = Path(sysfs_root)
     if slots is None:
         slots = read_smbios_slots(sysfs_root)
+    in_slot = {s.address: s.designation for s in slots}
     bays: dict[str, Bay] = {}
     cls = root / "sys/class/nvme"
     for ctrl in sorted(cls.iterdir()) if cls.is_dir() else []:
@@ -148,8 +160,12 @@ def nvme_bays(sysfs_root: str = "/", slots: list[SmbiosSlot] | None = None) -> l
         if not chain:
             continue  # NVMe over fabrics: no PCIe position
         key = chain[-1].rsplit(".", 1)[0]
-        port = str(dev.parent) if len(chain) > 1 else str(dev)
-        bays[key] = Bay(key, port_label(port, slots, sysfs_root), ctrl.name, _link(dev), None)
+        if chain[-1] in in_slot:
+            label = in_slot[chain[-1]]  # an NVMe card straight in a named slot
+        else:
+            port = str(dev.parent) if len(chain) > 1 else str(dev)
+            label = port_label(port, slots, sysfs_root)
+        bays[key] = Bay(key, label, ctrl.name, _link(dev), None, occupied=True)
     pci_slots = root / "sys/bus/pci/slots"
     for s in sorted(pci_slots.iterdir()) if pci_slots.is_dir() else []:
         addr = _read(s / "address")
@@ -158,11 +174,13 @@ def nvme_bays(sysfs_root: str = "/", slots: list[SmbiosSlot] | None = None) -> l
         if addr in bays:
             bays[addr].hotplug_slot = s.name
             continue
-        if _read(s / "adapter") == "1":
-            continue  # something other than an NVMe drive is in it
+        present = _read(s / "adapter") == "1"
+        funcs = list((root / "sys/bus/pci/devices").glob(addr + ".*"))
+        if funcs and not any(_read(f / "class") == _NVME_CLASS for f in funcs):
+            continue  # another kind of card
         bridge = _bridge_to(root, addr)
         label = port_label(bridge, slots, sysfs_root) if bridge else f"hot-plug slot {s.name}"
-        bays[addr] = Bay(addr, label, None, None, s.name)
+        bays[addr] = Bay(addr, label, None, None, s.name, occupied=present)
     return [bays[k] for k in sorted(bays)]
 
 
@@ -171,7 +189,7 @@ def _bridge_to(root: Path, addr: str) -> str | None:
     domain, bus = addr.split(":")[0], int(addr.split(":")[1], 16)
     devs = root / "sys/bus/pci/devices"
     for d in sorted(devs.iterdir()) if devs.is_dir() else []:
-        if not d.name.startswith(domain):
+        if d.name.split(":")[0] != domain:
             continue
         sec = _read(d / "secondary_bus_number")
         if sec is not None and sec.isdigit() and int(sec) == bus:

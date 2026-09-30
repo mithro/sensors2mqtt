@@ -155,8 +155,9 @@ class VG:
 
 
 # Segment keys that name the sub-LVs (or PVs) a segment is built from
-_REF_KEYS = ("raids", "mirrors", "origin", "meta_dev", "cache_pool", "pool", "data",
-             "metadata", "log", "external_origin", "writecache", "vdo_pool")
+_REF_KEYS = ("raids", "mirrors", "origin", "meta_dev", "cache_pool", "pool", "thin_pool",
+             "data", "metadata", "log", "mirror_log", "external_origin", "writecache",
+             "vdo_pool")
 # Sub-LV name suffix -> its role in the LV
 _ROLE_RE = re.compile(r"_(rimage|rmeta|mimage|mlog|imeta|iorig|cvol|corig|cdata|cmeta|"
                       r"cpool|tdata|tmeta|vorigin|vdata|pmspare|wcorig)(_\d+)?$")

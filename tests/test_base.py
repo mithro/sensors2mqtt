@@ -469,3 +469,13 @@ class TestAttributes:
         pub._poll_once(mock_mqtt_client)
         assert [json.loads(m["payload"]) for m in mock_mqtt_client.published
                 if m["topic"] == topic] == [{"pvs": ["sdb", "sdc"]}]
+        # A reconnect sends them again
+        mock_mqtt_client.published.clear()
+        pub._attributes_sent.clear()
+        pub._poll_once(mock_mqtt_client)
+        assert len([m for m in mock_mqtt_client.published if m["topic"] == topic]) == 1
+        # Gone: the retained attributes are emptied
+        mock_mqtt_client.published.clear()
+        pub.dynamic_sensors = lambda: []
+        pub._poll_once(mock_mqtt_client)
+        assert [m["payload"] for m in mock_mqtt_client.published if m["topic"] == topic] == ["{}"]

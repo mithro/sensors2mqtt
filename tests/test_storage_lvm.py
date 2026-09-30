@@ -245,6 +245,23 @@ def test_lv_tree_down_to_pvs():
         ("pv2", None, False, round(51 * EXT / lvm.GB, 3))]
 
 
+def test_thin_lv_tree_reaches_the_pool_pvs():
+    meta = lvm.parse_lvm_metadata('''vg { extent_size = 8192
+      physical_volumes { pv0 { id = "u0" pe_count = 100 } }
+      logical_volumes {
+        thin1 { status = ["VISIBLE"] segment1 { extent_count = 50 type = "thin"
+                thin_pool = "pool" transaction_id = 1 device_id = 1 } }
+        pool { status = ["VISIBLE"] segment1 { extent_count = 10 type = "thin-pool"
+               metadata = "pool_tmeta" pool = "pool_tdata" } }
+        pool_tdata { segment1 { extent_count = 10 type = "striped" stripes = ["pv0", 0] } }
+        pool_tmeta { segment1 { extent_count = 1 type = "striped" stripes = ["pv0", 10] } }
+      } }''')
+    vg = lvm.vg_from_metadata(meta, lambda u: True, lambda u: "sdb")
+    thin = {lv.name: lv for lv in vg.lvs}["thin1"]
+    assert [c["name"] for c in thin.tree["children"]] == ["pool"]
+    assert [(p["pv"], p["device"]) for p in thin.pvs()] == [("pv0", "sdb")]
+
+
 def test_filesystem_backing_chain():
     devices = {"aaaaaa-0000": "sdb", "bbbbbb-1111": "sdc1"}
     vg = lvm.vg_from_metadata(lvm.parse_lvm_metadata(METADATA),

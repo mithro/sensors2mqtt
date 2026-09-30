@@ -235,7 +235,10 @@ class BasePublisher(ABC):
         # avail_topic == connection_status_topic(self.module) for host-local
         # collectors (node_id == host_id()), so the Last-Will and the connection
         # diagnostic published below share one topic.
-        client = make_client(self.config, self.client_id, will_topic=self.avail_topic)
+        # After a (re)connect, send every attribute again: the broker may have
+        # lost its retained messages, or a publish may have been dropped.
+        client = make_client(self.config, self.client_id, will_topic=self.avail_topic,
+                             on_connected=lambda c: self._attributes_sent.clear())
 
         log.info("Connecting to MQTT %s:%d", self.config.host, self.config.port)
         client.connect(self.config.host, self.config.port, keepalive=120)
@@ -307,9 +310,15 @@ class BasePublisher(ABC):
 
         for suffix, payload in attributes.items():
             if self._attributes_sent.get(suffix) != payload:
-                client.publish(attributes_topic(self.state_topic, suffix), payload,
-                               retain=True)
-                self._attributes_sent[suffix] = payload
+                info = client.publish(attributes_topic(self.state_topic, suffix), payload,
+                                      retain=True)
+                # Not sent (disconnected): try again next poll
+                if getattr(info, "rc", mqtt.MQTT_ERR_SUCCESS) == mqtt.MQTT_ERR_SUCCESS:
+                    self._attributes_sent[suffix] = payload
+        for suffix in list(self._attributes_sent.keys() - attributes.keys()):
+            # Gone (an LV removed): empty its retained attributes too
+            client.publish(attributes_topic(self.state_topic, suffix), "{}", retain=True)
+            del self._attributes_sent[suffix]
         publish_state(client, self.state_topic, values)
         client.publish(self.avail_topic, "online", retain=True)
         self._log_summary(values)

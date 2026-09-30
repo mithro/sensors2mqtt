@@ -210,6 +210,19 @@ def identity(block: Path) -> tuple[str | None, str, str | None, str | None, str]
     return serial, model, firmware, vendor, transport
 
 
+def _nvme_bay(dev_real: Path, bays: dict):
+    """The bay of an NVMe namespace's controller. With native multipath the
+    namespace's device is the subsystem (``nvme-subsys0``): use its first
+    controller that has a bay."""
+    if dev_real.name in bays:
+        return bays[dev_real.name]
+    if dev_real.name.startswith("nvme-subsys") and dev_real.is_dir():
+        for c in sorted(dev_real.iterdir()):
+            if re.fullmatch(r"nvme\d+", c.name) and c.name in bays:
+                return bays[c.name]
+    return None
+
+
 def whole_disks(name: str, sysfs_root: str = "/") -> list[str]:
     """The physical disks a block device is built on (itself if it is one).
 
@@ -244,8 +257,7 @@ def discover_drives(sysfs_root: str = "/", proc_root: str = "/",
     mounted = _mounted_devices(Path(proc_root))
     if smbios is None:
         smbios = read_smbios_slots(sysfs_root)
-    bays = {b.controller: (i, b) for i, b in enumerate(nvme_bays(sysfs_root, smbios))
-            if b.controller}
+    bays = {b.controller: b for b in nvme_bays(sysfs_root, smbios) if b.controller}
     drives: list[Drive] = []
     for block in sorted((root / "sys/block").iterdir()):
         name = block.name
@@ -273,10 +285,10 @@ def discover_drives(sysfs_root: str = "/", proc_root: str = "/",
             drive.slot_name = slot_dir.name  # the enclosure's own label, "Slot07"
             drive.slot_status = _read(slot_dir / "status")
             break
-        if transport == "NVMe" and Path(dev_real).name in bays:
-            i, bay = bays[Path(dev_real).name]
+        bay = _nvme_bay(Path(dev_real), bays) if transport == "NVMe" else None
+        if bay is not None:
             drive.enclosure, drive.enclosure_model = NVME_ENCLOSURE, "NVMe"
-            drive.slot, drive.slot_name, drive.slot_status = i, bay.label, "OK"
+            drive.slot, drive.slot_name, drive.slot_status = bay.number, bay.label, "OK"
             drive.pcie_link = bay.link
         drive.hba = board_slot(dev_real, smbios) if transport != "NVMe" else None
 
@@ -373,16 +385,17 @@ def discover_nvme_enclosure(host: str, sysfs_root: str = "/",
                             smbios: list[SmbiosSlot] | None = None) -> Enclosure | None:
     """The host's NVMe positions as one enclosure (None if it has none).
 
-    Slots are numbered in PCI address order, as discover_drives numbers them.
+    Slots are numbered by PCI position (Bay.number), as discover_drives does.
     """
     bays = nvme_bays(sysfs_root, smbios)
     if not bays:
         return None
     cls = Path(sysfs_root) / "sys/class/nvme"
     slots = []
-    for i, b in enumerate(bays):
+    for b in bays:
         serial = _read(cls / b.controller / "serial") if b.controller else None
-        slots.append(Slot(number=i, status="OK" if b.controller else "not installed",
+        # A card present with no controller shows as a phantom slot
+        slots.append(Slot(number=b.number, status="OK" if b.occupied else "not installed",
                           fault=False, locate=False, serial=serial or None, name=b.label))
     return Enclosure(id=NVME_ENCLOSURE, logical_id=f"{host}_nvme", vendor=None,
                      model="NVMe", slots=slots)
