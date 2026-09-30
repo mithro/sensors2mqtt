@@ -8,6 +8,7 @@ from sensors2mqtt.collector.storage.drives import (
     discover_enclosures,
     dm_display_name,
     read_diskstats,
+    whole_disks,
 )
 
 
@@ -112,8 +113,8 @@ def test_sata_behind_expander_uses_identify_data(tmp_path):
     assert (d.serial, d.model, d.firmware, d.transport) == (
         "ZHZ598DY", "ST12000NM0008-2H3101", "SN03", "SATA")
     assert d.vendor is None
-    assert (d.enclosure, d.enclosure_model, d.slot, d.slot_status) == (
-        "0:0:29:0", "SAS3x48Front", 16, "OK")
+    assert (d.enclosure, d.enclosure_model, d.slot, d.slot_name, d.slot_status) == (
+        "0:0:29:0", "SAS3x48Front", 16, "Slot17", "OK")
     assert d.phy["link_rate"] == "12.0 Gbit"
     assert d.phy["invalid_dwords"] == 3
     assert d.capacity_bytes == 19532873728 * 512
@@ -169,8 +170,8 @@ def test_enclosure_slots(tmp_path):
     (empty / "status").write_text("not installed\n")
     (e,) = discover_enclosures(str(tmp_path))
     assert (e.id, e.logical_id, e.model) == ("0:0:29:0", "0x500304801f06a3ff", "SAS3x48Front")
-    assert [(s.number, s.status, s.serial) for s in e.slots] == [
-        (0, "not installed", None), (16, "OK", "ZHZ598DY")]
+    assert [(s.number, s.status, s.serial, s.name) for s in e.slots] == [
+        (0, "not installed", None, "Slot01"), (16, "OK", "ZHZ598DY", "Slot17")]
 
 
 def test_diskstats(tmp_path):
@@ -182,3 +183,25 @@ def test_diskstats(tmp_path):
     assert (s["sdb"].reads, s["sdb"].sectors_read, s["sdb"].writes,
             s["sdb"].sectors_written, s["sdb"].in_flight, s["sdb"].io_ms) == (
         100, 2000, 200, 4000, 1, 70)
+
+
+def test_whole_disks_follows_slaves_and_partitions(tmp_path):
+    cls = tmp_path / "sys/class/block"
+    for disk in ("sda", "sdb"):
+        (tmp_path / "sys/block" / disk / "device").mkdir(parents=True)
+        (tmp_path / "sys/block" / disk / f"{disk}1").mkdir()
+        (tmp_path / "sys/block" / disk / f"{disk}1/partition").write_text("1\n")
+    (tmp_path / "sys/block/dm-0/slaves").mkdir(parents=True)
+    (tmp_path / "sys/block/dm-1/slaves").mkdir(parents=True)
+    cls.mkdir(parents=True)
+    for n in ("sda", "sdb", "dm-0", "dm-1"):
+        os.symlink(tmp_path / "sys/block" / n, cls / n)
+    for n in ("sda1", "sdb1"):
+        os.symlink(tmp_path / "sys/block" / n[:3] / n, cls / n)
+    # dm-1 (raid) on dm-0 (a sub-LV on sda1) and on sdb1
+    (tmp_path / "sys/block/dm-1/slaves/dm-0").mkdir()
+    (tmp_path / "sys/block/dm-1/slaves/sdb1").mkdir()
+    (tmp_path / "sys/block/dm-0/slaves/sda1").mkdir()
+    assert whole_disks("dm-1", str(tmp_path)) == ["sda", "sdb"]
+    assert whole_disks("sdb1", str(tmp_path)) == ["sdb"]
+    assert whole_disks("sda", str(tmp_path)) == ["sda"]

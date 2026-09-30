@@ -5,6 +5,7 @@ All collectors inherit from BasePublisher and implement poll().
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import signal
@@ -19,6 +20,8 @@ import paho.mqtt.client as mqtt
 from sensors2mqtt.discovery import (
     DeviceInfo,
     SensorDef,
+    WithAttributes,
+    attributes_topic,
     publish_connection_diagnostic,
     publish_discovery,
     publish_state,
@@ -175,6 +178,7 @@ class BasePublisher(ABC):
         self._stop_event = threading.Event()
         self._discovery_published = False
         self._dynamic_discovered: set[str] = set()
+        self._attributes_sent: dict[str, str] = {}  # suffix -> JSON last published
 
     @property
     @abstractmethod
@@ -271,7 +275,11 @@ class BasePublisher(ABC):
             return
 
         values = dict(values or {})
+        attributes: dict[str, str] = {}
         for sensor_def, value in dynamic:
+            if isinstance(value, WithAttributes):
+                attributes[sensor_def.suffix] = json.dumps(value.attributes, sort_keys=True)
+                value = value.state
             values[sensor_def.suffix] = value
 
         if not self._discovery_published:
@@ -297,6 +305,11 @@ class BasePublisher(ABC):
         for suffix in self._dynamic_discovered - values.keys():
             values[suffix] = None
 
+        for suffix, payload in attributes.items():
+            if self._attributes_sent.get(suffix) != payload:
+                client.publish(attributes_topic(self.state_topic, suffix), payload,
+                               retain=True)
+                self._attributes_sent[suffix] = payload
         publish_state(client, self.state_topic, values)
         client.publish(self.avail_topic, "online", retain=True)
         self._log_summary(values)

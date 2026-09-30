@@ -10,7 +10,7 @@ from paho.mqtt.packettypes import PacketTypes
 from paho.mqtt.reasoncodes import ReasonCode
 
 from sensors2mqtt.base import BasePublisher, MqttConfig, make_client
-from sensors2mqtt.discovery import DeviceInfo, SensorDef
+from sensors2mqtt.discovery import DeviceInfo, SensorDef, WithAttributes
 
 
 class TestMqttConfig:
@@ -432,3 +432,40 @@ def test_vanished_dynamic_sensor_published_as_null(mock_mqtt_client):
     p._dyn = []
     p._poll_once(mock_mqtt_client)
     assert '"sfp_cage1_temp": null' in _states(mock_mqtt_client)[-1]["payload"]
+
+
+class AttributedPublisher(StubPublisher):
+    """A dynamic sensor with JSON attributes."""
+
+    attrs = {"pvs": ["sdb"]}
+
+    def dynamic_sensors(self):
+        return [(SensorDef("pvs", "PVs", "", attributes=True),
+                 WithAttributes("sdb", dict(self.attrs)))]
+
+
+class TestAttributes:
+    @patch("sensors2mqtt.base.socket.gethostname", return_value="ten64")
+    def test_attributes_published_on_their_own_topic_when_changed(self, _gh,
+                                                                  mock_mqtt_client):
+        import json
+        pub = AttributedPublisher(poll_values={"temp": 1.0}, config=MqttConfig())
+        pub._poll_once(mock_mqtt_client)
+        topic = "sensors2mqtt/test/stub/attributes/pvs"
+        sent = [m for m in mock_mqtt_client.published if m["topic"] == topic]
+        assert [(json.loads(m["payload"]), m["retain"]) for m in sent] == [
+            ({"pvs": ["sdb"]}, True)]
+        (config,) = [json.loads(m["payload"]) for m in mock_mqtt_client.published
+                     if m["topic"] == "homeassistant/sensor/test/pvs/config"]
+        assert config["json_attributes_topic"] == topic
+        state = [json.loads(m["payload"]) for m in mock_mqtt_client.published
+                 if m["topic"] == "sensors2mqtt/test/stub/state"][-1]
+        assert state["pvs"] == "sdb"
+        # Unchanged: not sent again; changed: sent
+        mock_mqtt_client.published.clear()
+        pub._poll_once(mock_mqtt_client)
+        assert not [m for m in mock_mqtt_client.published if m["topic"] == topic]
+        pub.attrs = {"pvs": ["sdb", "sdc"]}
+        pub._poll_once(mock_mqtt_client)
+        assert [json.loads(m["payload"]) for m in mock_mqtt_client.published
+                if m["topic"] == topic] == [{"pvs": ["sdb", "sdc"]}]

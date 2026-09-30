@@ -43,6 +43,10 @@ class SensorDef:
         entity_category: HA entity category (e.g. "diagnostic"). None for normal.
         enabled_by_default: False creates the entity disabled in HA (the user can
             enable it); for rarely wanted detail such as normalised SMART values.
+        attributes: the entity also has JSON attributes, published (retained,
+            when they change) on attributes_topic() rather than in the state
+            message, which every entity of the device parses on every poll.
+            Its value is then a WithAttributes.
     """
 
     suffix: str
@@ -53,6 +57,20 @@ class SensorDef:
     icon: str | None = None
     entity_category: str | None = None
     enabled_by_default: bool = True
+    attributes: bool = False
+
+
+@dataclass(frozen=True)
+class WithAttributes:
+    """The value of a sensor with ``attributes``: its state and its attributes."""
+
+    state: object
+    attributes: dict
+
+
+def attributes_topic(state_topic: str, suffix: str) -> str:
+    """``sensors2mqtt/<node>/<module>/state`` -> ``.../<module>/attributes/<suffix>``."""
+    return f"{state_topic.rsplit('/', 1)[0]}/attributes/{suffix}"
 
 
 @dataclass(frozen=True)
@@ -151,6 +169,8 @@ def discovery_payload(
         config["icon"] = sensor.icon
     if sensor.entity_category:
         config["entity_category"] = sensor.entity_category
+    if sensor.attributes:
+        config["json_attributes_topic"] = attributes_topic(state_topic, sensor.suffix)
     return config
 
 

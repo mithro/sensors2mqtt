@@ -225,3 +225,61 @@ def test_idle_md_is_fully_synced(tmp_path):
     (tmp_path / "sys/block/md0/size").write_text("2048\n")
     (a,) = lvm.read_md_arrays(str(tmp_path))
     assert (a.sync_pct, a.degraded, a.size_bytes) == (100.0, 0, 2048 * 512)
+
+
+def test_lv_tree_down_to_pvs():
+    devices = {"aaaaaa-0000": "sdb", "bbbbbb-1111": "sdc1"}
+    vg = lvm.vg_from_metadata(lvm.parse_lvm_metadata(METADATA),
+                              lambda uuid: uuid != "cccccc-2222", devices.get)
+    mirror = {lv.name: lv for lv in vg.lvs}["mirror"]
+    t = mirror.tree
+    assert (t["name"], t["type"], t["role"]) == ("mirror", "raid1", None)
+    assert [(c["name"], c["role"]) for c in t["children"]] == [
+        ("mirror_rmeta_0", "rmeta"), ("mirror_rimage_0", "rimage"),
+        ("mirror_rmeta_1", "rmeta"), ("mirror_rimage_1", "rimage")]
+    leaf = t["children"][1]["children"][0]
+    assert (leaf["pv"], leaf["device"], leaf["present"]) == ("pv1", "sdc1", True)
+    # Each PV once, with the space the LV has on it (image + metadata)
+    assert [(p["pv"], p["device"], p["present"], p["gb"]) for p in mirror.pvs()] == [
+        ("pv1", "sdc1", True, round(51 * EXT / lvm.GB, 3)),
+        ("pv2", None, False, round(51 * EXT / lvm.GB, 3))]
+
+
+def test_filesystem_backing_chain():
+    devices = {"aaaaaa-0000": "sdb", "bbbbbb-1111": "sdc1"}
+    vg = lvm.vg_from_metadata(lvm.parse_lvm_metadata(METADATA),
+                              lambda uuid: uuid != "cccccc-2222", devices.get)
+    disks = {"sdc1": [{"dev": "sdc", "serial": "SERC", "model": "M"}],
+             "sdb": [{"dev": "sdb", "serial": "SERB", "model": "M"}],
+             "nvme0n1p1": [{"dev": "nvme0n1", "serial": "SERN", "model": "N"}]}
+    on_lv = lvm.Filesystem("/data", "/dev/mapper/testvg-mirror", "ext4", False, 1, 1, 1, 1.0)
+    plain = lvm.Filesystem("/boot/efi", "/dev/nvme0n1p1", "vfat", False, 1, 1, 1, 1.0)
+    backing = {"/data": ("testvg/mirror", None), "/boot/efi": (None, "nvme0n1p1")}
+    out = dict((s.suffix, v) for s, v in collect_logical(
+        [on_lv, plain], [], [], [vg], lvm.DmStatus(),
+        lambda dev: disks.get(dev, []), lambda fs: backing[fs.mountpoint]))
+    assert (out["fs_data_lv"], out["fs_data_vg"]) == ("testvg/mirror", "testvg")
+    assert out["fs_data_pvs"].state == "sdc1, missing pv2"
+    assert [p["disks"] for p in out["fs_data_pvs"].attributes["pvs"]] == [disks["sdc1"], []]
+    assert out["fs_data_drives"].state == "SERC"
+    assert (out["fs_boot_efi_lv"], out["fs_boot_efi_pvs"].state) == ("none", "none")
+    assert out["fs_boot_efi_drives"].attributes == {"drives": disks["nvme0n1p1"]}
+    # The VG lists its PVs; each PV names its device and drive
+    assert out["vg_testvg_pv_list"].state == "sdb, sdc1, missing pv2"
+    pv2 = out["vg_testvg_pv_list"].attributes["pvs"][2]
+    assert (pv2["pv"], pv2["present"], pv2["last_seen_as"]) == ("pv2", False, "/dev/sdd")
+    assert out["pv_testvg_aaaaaa_0000_device"] == "sdb"
+    assert out["pv_testvg_aaaaaa_0000_drive"] == "SERB"
+    assert out["pv_testvg_cccccc_2222_device"] == "missing"
+    layout = out["lv_testvg_mirror_layout"]
+    assert layout.state == "raid1 on 2 PVs (1 missing)"
+    assert layout.attributes["tree"]["children"][1]["children"][0]["disks"] == disks["sdc1"]
+
+
+def test_short_list_fits_a_state():
+    from sensors2mqtt.collector.storage_lvm import short_list
+    assert short_list([]) == "none"
+    assert short_list(["a", "b"]) == "a, b"
+    long = [f"SERIAL{i:04d}XXXXXXXXXX" for i in range(20)]
+    s = short_list(long)
+    assert len(s) <= 255 and s.endswith(f"(+{20 - s.count('SERIAL')})")
