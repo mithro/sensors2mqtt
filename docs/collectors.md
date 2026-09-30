@@ -148,9 +148,13 @@ that moves to another slot or host keeps its device and history; the host that
 has it now is its `via_device`. Per drive: every SMART lifetime counter (ATA
 attributes and Device Statistics, SCSI error counters, start-stop cycles and
 defect lists, NVMe health log), temperature, I/O rates and utilisation, link
-rate and link errors, the enclosure slot it is in, and what uses it (md / LVM /
-mount). Each SES enclosure is also a device, with the state of every slot
-(occupied, empty, phantom: the enclosure sees a drive the host doesn't).
+rate and link errors, the bay it is in, the motherboard slot of its controller
+(from the SMBIOS slot table: "CPU1 JMEZZ1 PCI-E 3.0 X8"), and what uses it
+(md / LVM / mount). Each SES enclosure is also a device, with the state and
+label ("Slot07") of every slot (occupied, empty, phantom: the enclosure sees a
+drive the host doesn't). A host's NVMe drives are one more enclosure, `NVMe`,
+whose bays are the PCIe ports with an NVMe drive or an empty hot-plug port,
+named after the slot they are in ("CPU2 SLOT3 PCI-E 3.0 X16 port 1").
 
 SMART data comes **only** from smartd's JSON state files: the collector never
 sends a command to a drive. It needs a smartd that writes them, such as the
@@ -162,7 +166,13 @@ all are listed with `-d ignore` in `/etc/smartd.conf`.
 filesystem usage (and fstab entries that aren't mounted), md arrays, LVM VG/LV/PV
 sizes and allocation (from `/etc/lvm/backup`, so no disk is read), and live
 RAID health, sync progress, integrity mismatches and cache usage from
-`dmsetup status`, with roll-ups for the problems worth an alert.
+`dmsetup status`, with roll-ups for the problems worth an alert. Each
+filesystem names the LV, VG, PVs and drives it is on, each VG lists its PVs
+(and each PV its current device and drive), and each LV has a layout entity
+whose attributes are its tree: RAID images, integrity and cache sub-LVs, PVs,
+drives. Lists too long for an HA state are in the entity's attributes, which
+are published on their own retained topic (`.../attributes/<suffix>`) only
+when they change.
 
 ```sh
 sudo apt install sensors2mqtt-storage sensors2mqtt-storage-lvm

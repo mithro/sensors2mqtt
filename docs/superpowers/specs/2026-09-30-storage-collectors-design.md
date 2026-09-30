@@ -52,8 +52,24 @@ Availability of a drive's entities is `all` of the drive's own status topic
 with that host's topics.
 
 **Enclosures** (`/sys/class/enclosure/*`): one HA device per enclosure
-(`encl_<id>`), with per-slot status (`OK`, `not installed`, faults) and the
-serial of the drive in the slot, so empty and phantom slots show up.
+(`encl_<id>`), with per-slot status (`OK`, `not installed`, faults), the
+slot's own label (the SES element name, "Slot07") and the serial of the drive
+in the slot, so empty and phantom slots show up.
+
+**NVMe enclosure and slot names** (added 2026-09-30): all of a host's NVMe
+drives are in one virtual enclosure (`encl_<host>_nvme`, id `nvme`). Its bays
+are every PCIe position with an NVMe controller plus every hot-plug port
+(`/sys/bus/pci/slots/*/adapter`) with no other kind of card in it (a card that
+is present but didn't come up is a phantom slot). A bay's slot number is its
+PCI position, `(domain * 256 + bus) * 32 + device`, so it doesn't change when
+another drive disappears. Bays and controllers
+are named from the SMBIOS type 9 (System Slot) records, which give the
+board's silkscreen name and the PCI address of the device in each slot: a port
+of a switch card is `<slot> port <n>` (downstream ports in PCI order), a CPU
+port with no slot record is `CPU<n> root port <bus:dev.fn>`. SAS/SATA drives
+get `controller_slot`, the slot of their HBA. The SMBIOS table is root-only,
+so the unit passes it in as a systemd credential (`LoadCredential=smbios:`,
+with `SetCredential=smbios:-` as the fallback where there is none).
 
 ## Collector 2: `sensors2mqtt.collector.storage_lvm` (module `storage_lvm`)
 
@@ -70,14 +86,25 @@ Runs as root (device-mapper status needs it). Publishes on the host device:
   mismatches; cache usage.
 - **Roll-ups**: unallocated space, missing PVs, degraded / resyncing LVs,
   degraded md arrays, integrity mismatches, filesystems over 95 %.
+- **What is on what** (added 2026-09-30): per filesystem, its LV, VG, PVs and
+  drives (serials); per VG, its PVs; per PV, its current device and drive;
+  per LV, `lv_<vg>_<lv>_layout`, whose attributes are the LV's tree from the
+  metadata segments (`raids`, `stripes`, `origin`, `cache_pool`, `meta_dev`,
+  ...) down to PVs and their drives, so a missing PV still shows where it
+  was. PVs resolve to devices through the `lvm-pv-uuid-*` links and to drives
+  through sysfs `slaves` (through md and dm). Lists go in entity attributes,
+  published on `sensors2mqtt/<node>/<module>/attributes/<suffix>` (retained,
+  only when changed) rather than in the state message every entity parses.
 
 ## Dashboard
 
 A self-contained HTML page (like the soundproof-rack and energy dashboards in
 `~/local/zigbee` on ten64), served from HA's `/config/www/storage-dashboard/`
 in a Lovelace iframe view, reading `/api/states` with the read-only dashboard
-token: a problems banner, one bay grid per enclosure, NVMe and other drives,
-a sortable drive table, and the filesystem / LVM / md views.
+token: a problems banner, one bay grid per enclosure (the NVMe enclosure
+included), a sortable drive table, the filesystem / LVM / md views with what
+each filesystem and VG is on, a drawing of each LV's layout, and history
+pages (filesystem usage and per-drive I/O) from HA's long-term statistics.
 
 ## Also changed
 

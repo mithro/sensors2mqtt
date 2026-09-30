@@ -101,12 +101,13 @@ def parse_lvm_metadata(text: str) -> dict:
 
 @dataclass
 class PV:
-    name: str
+    name: str  # the metadata's name for it, "pv3"
     uuid: str
-    device_hint: str | None
+    device_hint: str | None  # where LVM last saw it
     size_bytes: int
     used_bytes: int
     present: bool
+    device: str | None = None  # block device it is now, "sdo", "md127"
 
 
 @dataclass
@@ -114,6 +115,23 @@ class LV:
     name: str
     type: str
     size_bytes: int
+    # What the LV is made of: {"name", "type", "role", "gb", "children": [...]}
+    # for an LV or sub-LV, {"pv", "uuid", "device", "present", "gb"} for a PV.
+    tree: dict = field(default_factory=dict)
+
+    def pvs(self) -> list[dict]:
+        """The PVs the LV is on, each once, with the space it uses on each."""
+        out: dict[str, dict] = {}
+        todo = [self.tree]
+        while todo:
+            n = todo.pop(0)
+            if "pv" in n:
+                if n["pv"] in out:
+                    out[n["pv"]]["gb"] = round(out[n["pv"]]["gb"] + n["gb"], 3)
+                else:
+                    out[n["pv"]] = dict(n)
+            todo.extend(n.get("children", []))
+        return list(out.values())
 
 
 @dataclass
@@ -136,10 +154,65 @@ class VG:
         return sum(1 for p in self.pvs if not p.present)
 
 
-def vg_from_metadata(meta: dict, pv_present) -> VG | None:
+# Segment keys that name the sub-LVs (or PVs) a segment is built from
+_REF_KEYS = ("raids", "mirrors", "origin", "meta_dev", "cache_pool", "pool", "thin_pool",
+             "data", "metadata", "log", "mirror_log", "external_origin", "writecache",
+             "vdo_pool")
+# Sub-LV name suffix -> its role in the LV
+_ROLE_RE = re.compile(r"_(rimage|rmeta|mimage|mlog|imeta|iorig|cvol|corig|cdata|cmeta|"
+                      r"cpool|tdata|tmeta|vorigin|vdata|pmspare|wcorig)(_\d+)?$")
+
+
+def _segments(lv: dict) -> list[dict]:
+    segs = [(int(k[7:]) if k[7:].isdigit() else 0, v) for k, v in lv.items()
+            if k.startswith("segment") and isinstance(v, dict)]
+    return [v for _, v in sorted(segs, key=lambda s: s[0])]
+
+
+def lv_tree(name: str, lvs: dict, pvs: dict[str, PV], extent: int,
+            depth: int = 0) -> dict:
+    """What an LV is made of, from its metadata segments, down to PVs."""
+    segs = _segments(lvs[name])
+    extents = sum(int(s.get("extent_count", 0)) for s in segs)
+    types = []
+    for s in segs:
+        t = str(s.get("type", "")).split("+")[0]
+        if t and t not in types:
+            types.append(t)
+    m = _ROLE_RE.search(name)
+    node = {"name": name, "type": "/".join(types), "role": m.group(1) if m else None,
+            "gb": round(extents * extent / GB, 3), "children": []}
+    kids: dict[str, dict] = {}  # merge a PV used by several segments
+    for s in segs:
+        count = int(s.get("extent_count", 0))
+        refs: list[tuple[str, int | None]] = []
+        stripes = s.get("stripes") or []
+        areas = [stripes[i] for i in range(0, len(stripes), 2)]
+        refs += [(str(a), count // max(1, len(areas))) for a in areas]
+        for key in _REF_KEYS:
+            v = s.get(key)
+            for r in (v if isinstance(v, list) else [v] if isinstance(v, str) else []):
+                refs.append((str(r), None))
+        for ref, n in refs:
+            if ref in pvs:
+                pv = pvs[ref]
+                leaf = kids.get(ref)
+                if leaf is None:
+                    leaf = kids[ref] = {"pv": ref, "uuid": pv.uuid, "device": pv.device,
+                                        "present": pv.present, "gb": 0.0}
+                    node["children"].append(leaf)
+                leaf["gb"] = round(leaf["gb"] + (n or 0) * extent / GB, 3)
+            elif ref in lvs and ref not in kids and depth < 16:
+                kids[ref] = lv_tree(ref, lvs, pvs, extent, depth + 1)
+                node["children"].append(kids[ref])
+    return node
+
+
+def vg_from_metadata(meta: dict, pv_present, pv_device=None) -> VG | None:
     """The VG described by a parsed metadata backup.
 
-    ``pv_present(uuid) -> bool`` says whether a PV is attached. A PV's used
+    ``pv_present(uuid) -> bool`` says whether a PV is attached and
+    ``pv_device(uuid) -> str | None`` which block device it is. A PV's used
     space is the extents that segment stripes place on it; RAID, cache and thin
     segments place theirs through sub-LVs, whose own segments are counted.
     """
@@ -151,7 +224,8 @@ def vg_from_metadata(meta: dict, pv_present) -> VG | None:
     extent = int(body.get("extent_size", 0)) * SECTOR
     used: dict[str, int] = {}
     lvs: list[LV] = []
-    for lv_name, lv in (body.get("logical_volumes") or {}).items():
+    all_lvs = body.get("logical_volumes") or {}
+    for lv_name, lv in all_lvs.items():
         size = 0
         seg_type = None
         for key, seg in lv.items():
@@ -170,10 +244,15 @@ def vg_from_metadata(meta: dict, pv_present) -> VG | None:
     vg = VG(name=name, extent_bytes=extent, lvs=sorted(lvs, key=lambda x: x.name))
     for pv_name, pv in (body.get("physical_volumes") or {}).items():
         uuid = str(pv.get("id", ""))
+        present = pv_present(uuid)
         vg.pvs.append(PV(name=pv_name, uuid=uuid, device_hint=pv.get("device"),
                          size_bytes=int(pv.get("pe_count", 0)) * extent,
                          used_bytes=used.get(pv_name, 0) * extent,
-                         present=pv_present(uuid)))
+                         present=present,
+                         device=pv_device(uuid) if pv_device and present else None))
+    by_name = {p.name: p for p in vg.pvs}
+    for lv in vg.lvs:
+        lv.tree = lv_tree(lv.name, all_lvs, by_name, extent)
     return vg
 
 
@@ -184,13 +263,20 @@ def read_vgs(backup_dir: str = "/etc/lvm/backup", by_id_dir: str = "/dev/disk/by
         # The udev link itself says udev saw the PV (lexists: whatever it points at)
         return os.path.lexists(os.path.join(by_id_dir, f"lvm-pv-uuid-{uuid}"))
 
+    def device(uuid: str) -> str | None:
+        try:
+            return os.path.basename(os.readlink(
+                os.path.join(by_id_dir, f"lvm-pv-uuid-{uuid}")))
+        except OSError:
+            return None
+
     out = []
     d = Path(backup_dir)
     if not d.is_dir():
         return out
     for f in sorted(d.iterdir()):
         try:
-            vg = vg_from_metadata(parse_lvm_metadata(f.read_text()), present)
+            vg = vg_from_metadata(parse_lvm_metadata(f.read_text()), present, device)
         except (OSError, ValueError, IndexError) as e:
             log.warning("Cannot parse LVM metadata backup %s: %s", f, e)
             continue
@@ -342,6 +428,7 @@ class Filesystem:
     used_bytes: int
     avail_bytes: int
     inodes_used_pct: float | None
+    devno: str | None = None  # "253:5"
 
     @property
     def used_pct(self) -> float:
@@ -393,7 +480,7 @@ def read_filesystems(proc_root: str = "/", statvfs=os.statvfs) -> list[Filesyste
                               size_bytes=st.f_blocks * st.f_frsize,
                               used_bytes=(st.f_blocks - st.f_bfree) * st.f_frsize,
                               avail_bytes=st.f_bavail * st.f_frsize,
-                              inodes_used_pct=inodes))
+                              inodes_used_pct=inodes, devno=devno))
     return out
 
 

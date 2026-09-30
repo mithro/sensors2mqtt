@@ -33,8 +33,10 @@ from sensors2mqtt.collector.storage.drives import (
     Enclosure,
     discover_drives,
     discover_enclosures,
+    discover_nvme_enclosure,
     read_diskstats,
 )
+from sensors2mqtt.collector.storage.pcie import read_smbios_slots
 from sensors2mqtt.collector.storage.smartd import (
     DEFAULT_JSONSTATE_GLOB,
     GB,
@@ -110,7 +112,8 @@ def _gauge(suffix, name, unit="", icon=None, device_class=None, diagnostic=False
 
 def drive_location(drive: Drive) -> str:
     if drive.enclosure is not None:
-        return f"{drive.enclosure_model or drive.enclosure} slot {drive.slot}"
+        bay = drive.slot_name or f"slot {drive.slot}"
+        return f"{drive.enclosure_model or drive.enclosure} {bay}"
     return drive.transport
 
 
@@ -148,7 +151,11 @@ def build_drive(drive: Drive, host: str, host_display: str, stats: DiskStats | N
         pub.add(_text("enclosure", "Enclosure", "mdi:server-network"),
                 f"{drive.enclosure_model or ''} {drive.enclosure}".strip())
         pub.add(_gauge("slot", "Slot", icon="mdi:numeric", diagnostic=True), drive.slot)
+        pub.add(_text("slot_name", "Bay", "mdi:tray"), drive.slot_name)
         pub.add(_text("slot_status", "Slot Status", "mdi:list-status"), drive.slot_status)
+    pub.add(_text("controller_slot", "Controller Slot", "mdi:expansion-card"), drive.hba)
+    pub.add(_text("link_rate", "Link Rate", "mdi:speedometer", diagnostic=False),
+            drive.pcie_link)
 
     # The link as the expander (or HBA) sees it: no command to the drive
     if drive.phy:
@@ -204,13 +211,17 @@ def enclosure_node_id(encl: Enclosure) -> str:
     return f"encl_{slug(encl.logical_id)}"
 
 
+def enclosure_name(encl: Enclosure, host_display: str) -> str:
+    return f"{host_display} {encl.model or encl.id}"
+
+
 def build_enclosure(encl: Enclosure, host: str, host_display: str,
                     present_serials: set[str]) -> Published:
     """An SES enclosure: each slot's status and the drive in it."""
     model = encl.model or encl.id
     pub = Published(DeviceInfo(
         node_id=enclosure_node_id(encl),
-        name=f"{host_display} {model}",
+        name=enclosure_name(encl, host_display),
         manufacturer=encl.vendor or "Unknown",
         model=model,
         via_device=f"sensors2mqtt_{host}",
@@ -236,6 +247,7 @@ def build_enclosure(encl: Enclosure, host: str, host_display: str,
                 s.serial or "none")
         pub.add(_text(f"slot_{n}_fault", f"Slot {n} Fault LED", "mdi:led-on"),
                 "on" if s.fault else "off")
+        pub.add(_text(f"slot_{n}_name", f"Slot {n} Label", "mdi:tag"), s.name)
     pub.add(_gauge("slots", "Slots", icon="mdi:tray", diagnostic=True), len(encl.slots))
     for key, label in (("occupied", "Occupied Slots"), ("empty", "Empty Slots"),
                        ("phantom", "Phantom Slots"), ("fault", "Faulted Slots")):
@@ -272,7 +284,8 @@ class StorageCollector:
     def collect(self) -> list[Published]:
         """One poll: every drive and enclosure, ready to publish."""
         now = time.monotonic()
-        drives = discover_drives(self.sysfs_root, self.proc_root)
+        smbios = read_smbios_slots(self.sysfs_root)
+        drives = discover_drives(self.sysfs_root, self.proc_root, smbios)
         stats = read_diskstats(self.proc_root)
         smart = load_smartd_states(
             self.jsonstate_glob, {d.serial: d.logical_block_size for d in drives})
@@ -290,7 +303,9 @@ class StorageCollector:
             if s is not None:
                 self._prev_stats[d.serial] = (now, s)
         present = {d.serial for d in drives}
-        for e in discover_enclosures(self.sysfs_root):
+        enclosures = discover_enclosures(self.sysfs_root)
+        nvme = discover_nvme_enclosure(self.host, self.sysfs_root, smbios)
+        for e in enclosures + ([nvme] if nvme else []):
             out.append(build_enclosure(e, self.host, self.host_display, present))
         return out
 

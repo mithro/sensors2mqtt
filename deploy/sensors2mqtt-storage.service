@@ -9,6 +9,11 @@ Type=simple
 # Reads only world-readable sysfs, /proc/diskstats and smartd's JSON state
 # files (it never sends a command to a drive), so it needs no privileges.
 DynamicUser=yes
+# The SMBIOS table (motherboard slot names, for drive locations) is root-only:
+# systemd hands the service a copy. SetCredential is the fallback ("-": no
+# slot names) where there is no table, e.g. a Raspberry Pi.
+LoadCredential=smbios:/sys/firmware/dmi/tables/DMI
+SetCredential=smbios:-
 ExecStart=/usr/bin/python3 -m sensors2mqtt.collector.storage
 Restart=always
 RestartSec=10
