@@ -119,6 +119,15 @@ class TestDiscoveryPayload:
         payload = discovery_payload(sensor, make_device(), state_topic="t", avail_topic="a")
         assert payload["entity_category"] == "diagnostic"
 
+    def test_force_update(self):
+        sensor = make_sensor(force_update=True)
+        payload = discovery_payload(sensor, make_device(), state_topic="t", avail_topic="a")
+        assert payload["force_update"] is True
+
+    def test_no_force_update_by_default(self):
+        payload = discovery_payload(make_sensor(), make_device(), state_topic="t", avail_topic="a")
+        assert "force_update" not in payload
+
 
 class TestPublishDiscovery:
     def test_publishes_all_sensors(self, mock_mqtt_client):
