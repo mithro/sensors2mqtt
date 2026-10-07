@@ -77,6 +77,7 @@ class SnmpSensor:
         icon: MDI icon override. None uses default.
         scale: Multiply raw value by this factor (e.g. 0.001 for mW -> W).
         value_type: How to parse the SNMP value ("int", "float", "string_int").
+        force_update: Have HA record every poll (see SensorDef.force_update).
     """
 
     suffix: str
@@ -87,6 +88,7 @@ class SnmpSensor:
     icon: str | None = None
     scale: float = 1.0
     value_type: str = "int"
+    force_update: bool = False
 
 
 @dataclass(frozen=True)
@@ -994,8 +996,12 @@ class SnmpCollector:
         """
         sensors = []
 
-        # Static snmpget sensors (extension point; currently unused by any model)
+        # Static snmpget sensors. Like the
+        # walk-discovered ones, announced only once polled, so an agent
+        # lacking the OID gets no permanently unknown entity.
         for s in switch.sensors:
+            if s.suffix not in values:
+                continue
             sensors.append(SensorDef(
                 suffix=s.suffix,
                 name=s.name,
@@ -1003,6 +1009,7 @@ class SnmpCollector:
                 device_class=s.device_class,
                 state_class="measurement",
                 icon=s.icon,
+                force_update=s.force_update,
             ))
 
         # Walk-discovered box sensors: poll_switch() assigns contiguous
