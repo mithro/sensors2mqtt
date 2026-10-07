@@ -54,12 +54,33 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv python install ${{ matrix.python-version }}
       - run: uv sync --dev --extra ipmi --python ${{ matrix.python-version }}
-      - run: uv run pytest -v
+      - run: uv run pytest -v -m "not integration"
       - run: uv run ruff check
+
+  integration:
+    # The real ezsnmp C-extension against a local snmpsim agent. ezsnmp comes
+    # from apt (python3-ezsnmp, the artifact the packages depend on); snmpsim
+    # from pip: the conftest expects the `snmpsim-command-responder` command
+    # (snmpsim-lextudio), and trixie's apt `snmpsim` (0.4.5) ships a different
+    # one.
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    steps:
+      - name: Install runtime + test deps
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            python3 python3-ezsnmp python3-paho-mqtt python3-pytest python3-pip git
+          pip install --break-system-packages snmpsim-lextudio
+      - uses: actions/checkout@v5
+      - name: Trust repo directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Run integration tests (real ezsnmp + snmpsim)
+        run: PYTHONPATH=src python3 -m pytest tests/ -m integration -v
 
   build-deb:
     name: build-deb (${{ matrix.suite }} ${{ matrix.arch }})
-    needs: test
+    needs: [test, integration]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
