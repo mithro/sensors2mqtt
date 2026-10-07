@@ -99,7 +99,9 @@ sudo uv run python -m sensors2mqtt.collector.storage_lvm --once   # prints value
   columns, not hardcoded per instance — indexing varies by model (M4300
   uses unit.fan like "1.0"; GSM7252PS uses bare "0"/"2" with a literal
   "Not Supported" placeholder, and has 4 PSU rails)
-- SNMP uses subprocess `snmpget`/`snmpwalk` (not pysnmp) for simplicity
+- SNMP runs in-process via the `ezsnmp` net-snmp binding (v2c) behind a
+  `SnmpClient` seam (`snmp_client.py`) — not subprocess CLI tools
+  (`snmpget`/`snmpwalk`/`snmpset`) or pysnmp; deployed as Debian `python3-ezsnmp`
 - Power readings are published raw for HA to integrate (`force_update`, no kWh
   accumulators in s2m). Units are declared per model, never converted:
   `pethMainPseConsumptionPower` is mW on the GSM7252PS and S3300 but W on the

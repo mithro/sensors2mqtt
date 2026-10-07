@@ -54,12 +54,53 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv python install ${{ matrix.python-version }}
       - run: uv sync --dev --extra ipmi --python ${{ matrix.python-version }}
-      - run: uv run pytest -v
+      - run: uv run pytest -v -m "not integration"
       - run: uv run ruff check
+
+  integration:
+    # The real ezsnmp C-extension against a local snmpsim agent, two
+    # independent ways: the Debian python3-ezsnmp package (the artifact the
+    # packages depend on) and a pip-installed ezsnmp built from source. A
+    # regression in either path fails.
+    name: integration (${{ matrix.ezsnmp }} ezsnmp)
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    strategy:
+      fail-fast: false
+      matrix:
+        ezsnmp: [apt, pip]
+    steps:
+      - name: Common test deps
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            python3 python3-paho-mqtt python3-pytest python3-pip git
+          # snmpsim from pip: the conftest expects `snmpsim-command-responder`
+          # (snmpsim-lextudio); trixie's apt `snmpsim` (0.4.5) ships a different
+          # command name.
+          pip install --break-system-packages snmpsim-lextudio
+
+      - name: ezsnmp from the Debian package (deployed artifact)
+        if: matrix.ezsnmp == 'apt'
+        run: apt-get install -y --no-install-recommends python3-ezsnmp
+
+      - name: ezsnmp from PyPI (compiled from source)
+        if: matrix.ezsnmp == 'pip'
+        run: |
+          # libsnmp-dev provides the net-snmp headers + net-snmp-config; python3-dev
+          # provides Python.h; build-essential provides the compiler.
+          apt-get install -y --no-install-recommends libsnmp-dev build-essential python3-dev
+          pip install --break-system-packages 'ezsnmp~=1.1'
+
+      - uses: actions/checkout@v5
+      - name: Trust repo directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Run integration tests (real ezsnmp + snmpsim)
+        run: PYTHONPATH=src python3 -m pytest tests/integration -m integration -v
 
   build-deb:
     name: build-deb (${{ matrix.suite }} ${{ matrix.arch }})
-    needs: test
+    needs: [test, integration]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -161,3 +202,51 @@ jobs:
       description: "Publish hardware sensor data to Home Assistant via MQTT"
     secrets:
       gpg-private-key: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+
+  verify-apt:
+    # After publishing, install the just-published packages from the LIVE apt
+    # repository on a fresh trixie system and smoke test them end-to-end:
+    # catches what the pre-publish install test cannot (a broken publish, a
+    # repository that serves the wrong thing). The version comes from this
+    # run's own trixie .debs, and the install pins to it and waits for it to
+    # appear, so a slow Pages deploy cannot let a stale package pass.
+    needs: publish-apt
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    steps:
+      - name: Base tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git python3-pip
+      - uses: actions/checkout@v5  # for the snmprec fixtures + smoke_test.py
+      - name: Trust repo directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: This run's trixie packages
+        uses: actions/download-artifact@v5
+        with:
+          name: debs-trixie-all
+          path: built-debs
+      - name: Install the just-published version from the apt repo (wait for it)
+        run: |
+          set -eu
+          VERSION=$(dpkg-deb -f built-debs/python3-sensors2mqtt_*.deb Version)
+          # [trusted=yes]: a functional smoke test, not a signature test.
+          echo "deb [trusted=yes] https://mith.ro/sensors2mqtt/trixie/ ./" \
+            > /etc/apt/sources.list.d/sensors2mqtt.list
+          echo "waiting for sensors2mqtt $VERSION to appear in the apt repo"
+          ok=
+          for i in $(seq 1 20); do
+            apt-get update || true
+            # Pinned to the just-built version so a stale repo snapshot cannot pass.
+            if apt-get install -y --no-install-recommends \
+                 "sensors2mqtt-snmp=$VERSION" "sensors2mqtt-snmp-control=$VERSION"; then
+              ok=1; break
+            fi
+            echo "attempt $i: $VERSION not in the apt repo yet, retrying in 20s"; sleep 20
+          done
+          test -n "$ok" || { echo "sensors2mqtt $VERSION never appeared in the apt repo"; exit 1; }
+          dpkg -s python3-sensors2mqtt | grep '^Version:'
+      - name: snmpsim for the smoke test
+        run: pip install --break-system-packages snmpsim-lextudio
+      - name: Smoke test the installed Debian packages
+        run: python3 packaging/smoke_test.py
