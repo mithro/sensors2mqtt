@@ -102,8 +102,9 @@ sudo uv run python -m sensors2mqtt.collector.storage_lvm --once   # prints value
 - SNMP uses subprocess `snmpget`/`snmpwalk` (not pysnmp) for simplicity
 - Power readings are published raw for HA to integrate (`force_update`, no kWh
   accumulators in s2m). Units are declared per model, never converted:
-  `pethMainPseConsumptionPower` is mW on the GSM7252PS and S3300 but W on the M4300-16X,
-  despite the MIB saying watts. No model has a PoE energy counter (#43).
+  `pethMainPseConsumptionPower` is mW on the GSM7252PS and S3300 but W on the
+  M4300-16X, despite the MIB saying watts. No model has a PoE energy counter
+  (#43).
 - Each collector is a `__main__.py`-style module runnable with `python -m`
 - paho-mqtt v2 API (CallbackAPIVersion.VERSION2)
 - Environment variables for MQTT connection (no config files)
