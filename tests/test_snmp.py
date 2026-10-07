@@ -357,6 +357,15 @@ class TestPseTotalPower:
         values = collector.poll_switch(sw)
         assert values["poe_total_power"] == 144600
 
+    def test_not_announced_until_polled(self):
+        """An agent without the OID (or an unreachable switch) gets no entity."""
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps")
+        collector = SnmpCollector(config=MqttConfig(host="t", port=1883, user="u", password="p"),
+                                  switches=[sw])
+        assert collector.get_sensors_for_switch(sw, {}) == []
+        later = collector.new_sensor_defs(sw, {"poe_total_power": 9})
+        assert [d.suffix for d in later] == ["poe_total_power"]
+
     def test_discovery_def(self):
         sw = _make_switch("test-gsm7252ps", "gsm7252ps")
         collector = SnmpCollector(config=MqttConfig(host="t", port=1883, user="u", password="p"),
