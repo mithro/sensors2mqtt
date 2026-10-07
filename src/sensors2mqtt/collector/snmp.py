@@ -1170,8 +1170,9 @@ def _publish_port_discovery(
             if entity_category:
                 config["entity_category"] = entity_category
             if value_key == "poe_watts":
-                # HA integrates PoE power into energy; it needs every poll
-                # recorded, including the many ports that sit at a constant 0.
+                # So HA (e.g. an Integral helper) can integrate PoE power into
+                # energy: it needs every poll recorded, including the many
+                # ports that sit at a constant 0.
                 config["force_update"] = True
 
             client.publish(config_topic, _json.dumps(config), retain=True)
