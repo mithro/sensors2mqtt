@@ -337,14 +337,13 @@ class TestPseTotalPower:
     def test_non_poe_model_has_none(self):
         assert MODELS["m4300"].sensors == []
 
-    @patch("sensors2mqtt.collector.snmp.subprocess.run")
-    def test_polled_value_is_raw(self, mock_run):
-        mock_run.side_effect = _box_walk_side_effect({
-            self.OID: f"iso.{self.OID[2:]} = Gauge32: 144600\n",
+    def test_polled_value_is_raw(self):
+        fake = FakeSnmpClient(get_rows={
+            self.OID: SnmpRow(oid=self.OID, value="144600", snmp_type="GAUGE"),
         })
         sw = _make_switch("test-gsm7252ps", "gsm7252ps")
         collector = SnmpCollector(config=MqttConfig(host="t", port=1883, user="u", password="p"),
-                                  switches=[sw])
+                                  switches=[sw], client_factory=lambda s: fake)
         values = collector.poll_switch(sw)
         assert values["poe_total_power"] == 144600
 
