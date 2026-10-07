@@ -341,10 +341,16 @@ class TestPseTotalPower:
         assert s.device_class == "power"
         assert s.force_update
 
-    def test_non_poe_and_unverified_models_have_none(self):
+    def test_s3300_reports_milliwatts(self):
+        # Draw 73700 on s3300-1, per-port mW sum 72500 (2026-10-07). Same
+        # standard OID: POWER-ETHERNET-MIB is not under the 4526.11 subtree.
+        s = self._pse("s3300")
+        assert (s.suffix, s.unit, s.scale) == ("poe_total_power", "mW", 1.0)
+        assert s.device_class == "power"
+        assert s.force_update
+
+    def test_non_poe_model_has_none(self):
         assert MODELS["m4300"].sensors == []
-        # No S3300 deployed to confirm its unit against.
-        assert MODELS["s3300"].sensors == []
 
     @patch("sensors2mqtt.collector.snmp.subprocess.run")
     def test_polled_value_is_raw(self, mock_run):

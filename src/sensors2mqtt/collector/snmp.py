@@ -236,8 +236,8 @@ def _pse_total_power(unit: str) -> list[SnmpSensor]:
     """Switch-total PoE draw, published raw for HA to integrate.
 
     The MIB says watts, but the unit varies by model and is declared rather
-    than converted: the GSM7252PS reports milliwatts (384000 budget, 144600
-    draw, matching its per-port mW sum), the M4300-16X watts.
+    than converted: the GSM7252PS and S3300 report milliwatts (e.g. 384000
+    budget, 144600 draw, matching the per-port mW sum), the M4300-16X watts.
     """
     return [SnmpSensor(
         suffix="poe_total_power",
@@ -293,6 +293,7 @@ MODELS: dict[str, SwitchModel] = {
         model="GSM7228PS",
         port_count=52,
         poe_port_count=48,
+        sensors=_pse_total_power("mW"),
         box_walks=_box_walks(_SMP_BOX),
         walk_sensors=_poe_walk(_SMP_POE),
     ),
