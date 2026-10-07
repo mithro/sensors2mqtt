@@ -69,9 +69,9 @@ file and the `chmod 0600` fix).
 | Model | Sensors |
 |-------|---------|
 | M4300-24X | Fans, temperature, PSU status |
-| M4300-16X | Fans, temperature, PSU, per-port PoE power, PoE total power (W) |
+| M4300-16X | Fans, temperature, PSU, per-port PoE power (mW), PoE total power (W) |
 | GSM7252PS | Fans, PSU, per-port PoE power (mW), PoE total power (mW) |
-| S3300-52X-PoE+ | Fans, temperature, PSU, per-port PoE power, PoE total power (mW) |
+| S3300-52X-PoE+ | Fans, temperature, PSU, per-port PoE power (mW), PoE total power (mW) |
 
 PoE and PSU power are published raw with `force_update`, so Home Assistant
 records every poll and can integrate them into energy (e.g. an Integral helper).
