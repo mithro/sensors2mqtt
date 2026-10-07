@@ -228,6 +228,27 @@ def _poe_walk(base: str) -> list[WalkSensorDef]:
     )]
 
 
+# POWER-ETHERNET-MIB pethMainPseConsumptionPower, PSE group 1
+_PSE_CONSUMPTION_OID = "1.3.6.1.2.1.105.1.3.1.1.4.1"
+
+
+def _pse_total_power(unit: str) -> list[SnmpSensor]:
+    """Switch-total PoE draw, published raw for HA to integrate.
+
+    The MIB says watts, but the unit varies by model and is declared rather
+    than converted: the GSM7252PS reports milliwatts (384000 budget, 144600
+    draw, matching its per-port mW sum), the M4300-16X watts.
+    """
+    return [SnmpSensor(
+        suffix="poe_total_power",
+        name="PoE Total Power",
+        oid=_PSE_CONSUMPTION_OID,
+        unit=unit,
+        device_class="power",
+        force_update=True,
+    )]
+
+
 def _box_walks(base: str) -> list[BoxWalkDef]:
     """Build boxServices walk definitions for a given enterprise OID base."""
     return [
@@ -254,6 +275,7 @@ MODELS: dict[str, SwitchModel] = {
         model="M4300-16X",
         port_count=16,
         poe_port_count=16,
+        sensors=_pse_total_power("W"),
         box_walks=_box_walks(_FM_BOX),
         walk_sensors=_poe_walk(_FM_POE),
     ),
@@ -262,6 +284,7 @@ MODELS: dict[str, SwitchModel] = {
         model="GSM7252PS",
         port_count=52,
         poe_port_count=48,
+        sensors=_pse_total_power("mW"),
         box_walks=_box_walks(_FM_BOX),
         walk_sensors=_poe_walk(_FM_POE),
     ),
@@ -996,7 +1019,7 @@ class SnmpCollector:
         """
         sensors = []
 
-        # Static snmpget sensors. Like the
+        # Static snmpget sensors (e.g. PoE PSE total power). Like the
         # walk-discovered ones, announced only once polled, so an agent
         # lacking the OID gets no permanently unknown entity.
         for s in switch.sensors:
