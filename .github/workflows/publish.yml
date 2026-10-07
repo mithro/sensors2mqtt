@@ -4,8 +4,10 @@ on:
   push:
     branches: [main]
 
+# Least privilege by default. Only the publish job holds the PyPI trusted-
+# publishing token: verify-pypi installs and runs third-party code from PyPI.
 permissions:
-  id-token: write
+  contents: read
 
 jobs:
   build:
@@ -35,6 +37,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     environment: pypi
+    permissions:
+      id-token: write
     steps:
       - uses: actions/download-artifact@v4
         with:
