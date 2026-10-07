@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from sensors2mqtt.base import MqttConfig
 from sensors2mqtt.collector.snmp import (
     MODELS,
     SnmpCollector,
@@ -314,6 +315,73 @@ class TestModelDefinitions:
             assert ".4526.10." in box.base_oid
         for walk in m.walk_sensors:
             assert ".4526.10." in walk.base_oid
+
+
+class TestPseTotalPower:
+    """pethMainPseConsumptionPower: switch-total PoE draw, published raw (#43)."""
+
+    OID = "1.3.6.1.2.1.105.1.3.1.1.4.1"
+
+    def _pse(self, model_name):
+        (s,) = [s for s in MODELS[model_name].sensors if s.oid == self.OID]
+        return s
+
+    def test_gsm7252ps_reports_milliwatts(self):
+        # Despite the MIB's "watts": budget 384000 / draw 144600 on a 384 W
+        # PSE, matching the per-port mW sum (146200) on 2026-10-07.
+        s = self._pse("gsm7252ps")
+        assert (s.suffix, s.unit, s.scale) == ("poe_total_power", "mW", 1.0)
+        assert s.device_class == "power"
+        assert s.force_update
+
+    def test_m4300_16x_reports_watts(self):
+        # Budget 199 / draw 9 on 2026-10-07, per-port mW sum 9300.
+        s = self._pse("m4300-16x")
+        assert (s.suffix, s.unit, s.scale) == ("poe_total_power", "W", 1.0)
+        assert s.device_class == "power"
+        assert s.force_update
+
+    def test_s3300_reports_milliwatts(self):
+        # Draw 73700 on s3300-1, per-port mW sum 72500 (2026-10-07). Same
+        # standard OID: POWER-ETHERNET-MIB is not under the 4526.11 subtree.
+        s = self._pse("s3300")
+        assert (s.suffix, s.unit, s.scale) == ("poe_total_power", "mW", 1.0)
+        assert s.device_class == "power"
+        assert s.force_update
+
+    def test_non_poe_model_has_none(self):
+        assert MODELS["m4300"].sensors == []
+
+    @patch("sensors2mqtt.collector.snmp.subprocess.run")
+    def test_polled_value_is_raw(self, mock_run):
+        mock_run.side_effect = _box_walk_side_effect({
+            self.OID: f"iso.{self.OID[2:]} = Gauge32: 144600\n",
+        })
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps")
+        collector = SnmpCollector(config=MqttConfig(host="t", port=1883, user="u", password="p"),
+                                  switches=[sw])
+        values = collector.poll_switch(sw)
+        assert values["poe_total_power"] == 144600
+
+    def test_not_announced_until_polled(self):
+        """An agent without the OID (or an unreachable switch) gets no entity."""
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps")
+        collector = SnmpCollector(config=MqttConfig(host="t", port=1883, user="u", password="p"),
+                                  switches=[sw])
+        assert collector.get_sensors_for_switch(sw, {}) == []
+        later = collector.new_sensor_defs(sw, {"poe_total_power": 9})
+        assert [d.suffix for d in later] == ["poe_total_power"]
+
+    def test_discovery_def(self):
+        sw = _make_switch("test-gsm7252ps", "gsm7252ps")
+        collector = SnmpCollector(config=MqttConfig(host="t", port=1883, user="u", password="p"),
+                                  switches=[sw])
+        by_suffix = {d.suffix: d for d in
+                     collector.get_sensors_for_switch(sw, {"poe_total_power": 144600})}
+        d = by_suffix["poe_total_power"]
+        assert (d.name, d.unit, d.device_class) == ("PoE Total Power", "mW", "power")
+        assert d.state_class == "measurement"
+        assert d.force_update
 
 
 class TestConfigLoading:

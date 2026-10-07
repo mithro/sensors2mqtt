@@ -77,6 +77,7 @@ class SnmpSensor:
         icon: MDI icon override. None uses default.
         scale: Multiply raw value by this factor (e.g. 0.001 for mW -> W).
         value_type: How to parse the SNMP value ("int", "float", "string_int").
+        force_update: Have HA record every poll (see SensorDef.force_update).
     """
 
     suffix: str
@@ -87,6 +88,7 @@ class SnmpSensor:
     icon: str | None = None
     scale: float = 1.0
     value_type: str = "int"
+    force_update: bool = False
 
 
 @dataclass(frozen=True)
@@ -226,6 +228,28 @@ def _poe_walk(base: str) -> list[WalkSensorDef]:
     )]
 
 
+# POWER-ETHERNET-MIB pethMainPseConsumptionPower, PSE group 1
+_PSE_CONSUMPTION_OID = "1.3.6.1.2.1.105.1.3.1.1.4.1"
+
+
+def _pse_total_power(unit: str) -> list[SnmpSensor]:
+    """Switch-total PoE draw, published raw for HA to integrate.
+
+    The MIB says watts, but the unit varies by model and is declared rather
+    than converted: the GSM7252PS and S3300 report milliwatts (GSM7252PS:
+    384000 budget, 144600 draw, matching its per-port mW sum), the M4300-16X
+    watts.
+    """
+    return [SnmpSensor(
+        suffix="poe_total_power",
+        name="PoE Total Power",
+        oid=_PSE_CONSUMPTION_OID,
+        unit=unit,
+        device_class="power",
+        force_update=True,
+    )]
+
+
 def _box_walks(base: str) -> list[BoxWalkDef]:
     """Build boxServices walk definitions for a given enterprise OID base."""
     return [
@@ -252,6 +276,7 @@ MODELS: dict[str, SwitchModel] = {
         model="M4300-16X",
         port_count=16,
         poe_port_count=16,
+        sensors=_pse_total_power("W"),
         box_walks=_box_walks(_FM_BOX),
         walk_sensors=_poe_walk(_FM_POE),
     ),
@@ -260,6 +285,7 @@ MODELS: dict[str, SwitchModel] = {
         model="GSM7252PS",
         port_count=52,
         poe_port_count=48,
+        sensors=_pse_total_power("mW"),
         box_walks=_box_walks(_FM_BOX),
         walk_sensors=_poe_walk(_FM_POE),
     ),
@@ -268,6 +294,7 @@ MODELS: dict[str, SwitchModel] = {
         model="GSM7228PS",
         port_count=52,
         poe_port_count=48,
+        sensors=_pse_total_power("mW"),
         box_walks=_box_walks(_SMP_BOX),
         walk_sensors=_poe_walk(_SMP_POE),
     ),
@@ -994,8 +1021,12 @@ class SnmpCollector:
         """
         sensors = []
 
-        # Static snmpget sensors (extension point; currently unused by any model)
+        # Static snmpget sensors (e.g. PoE PSE total power). Like the
+        # walk-discovered ones, announced only once polled, so an agent
+        # lacking the OID gets no permanently unknown entity.
         for s in switch.sensors:
+            if s.suffix not in values:
+                continue
             sensors.append(SensorDef(
                 suffix=s.suffix,
                 name=s.name,
@@ -1003,6 +1034,7 @@ class SnmpCollector:
                 device_class=s.device_class,
                 state_class="measurement",
                 icon=s.icon,
+                force_update=s.force_update,
             ))
 
         # Walk-discovered box sensors: poll_switch() assigns contiguous
