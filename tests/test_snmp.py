@@ -735,6 +735,12 @@ class TestSnmpCollector:
         assert by_suffix["psu_power2"].device_class == "power"
         for s in sensors:
             assert s.state_class == "measurement"
+        # Power is integrated into energy by HA, which needs every poll
+        # recorded even when the reading is unchanged (#43).
+        assert by_suffix["psu_power"].force_update
+        assert by_suffix["psu_power2"].force_update
+        assert not by_suffix["fan1_rpm"].force_update
+        assert not by_suffix["temp"].force_update
 
     def test_new_sensor_defs_incremental(self):
         """Sensors first seen on a later poll still get discovery defs."""
@@ -866,6 +872,27 @@ def test_port_discovery_drops_bridge_and_has_expire_after():
         assert c["availability_topic"] == f"sensors2mqtt/{sw.node_id}/status"
         assert "availability" not in c  # no multi-topic list -> no bridge
         assert c["expire_after"] == EXPIRE_AFTER
+
+
+def test_port_discovery_force_updates_poe_watts_only():
+    """PoE power must reach HA every poll so it can integrate energy (#43)."""
+    import json
+    from unittest.mock import MagicMock
+
+    from sensors2mqtt.collector.snmp import _publish_port_discovery
+
+    sw = _make_switch("test-gsm", "gsm7252ps")
+    client = MagicMock()
+    _publish_port_discovery(client, sw, f"sensors2mqtt/{sw.node_id}/status")
+    cfgs = {json.loads(c.args[1])["unique_id"]: json.loads(c.args[1])
+            for c in client.publish.call_args_list}
+    poe = cfgs[f"{sw.node_id}_01_poe_watts"]
+    assert poe["force_update"] is True
+    assert poe["device_class"] == "power"
+    assert poe["state_class"] == "measurement"
+    forced = {uid for uid, c in cfgs.items() if c.get("force_update")}
+    assert forced == {uid for uid in cfgs if uid.endswith("_poe_watts")}
+    assert len(forced) == sw.poe_port_count
 
 
 def test_connection_status_topic_for_snmp(monkeypatch):

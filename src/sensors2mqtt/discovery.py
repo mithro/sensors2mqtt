@@ -47,6 +47,10 @@ class SensorDef:
             when they change) on attributes_topic() rather than in the state
             message, which every entity of the device parses on every poll.
             Its value is then a WithAttributes.
+        force_update: HA records every received state, not only changes. Set it
+            on power readings HA integrates into energy: without it a constant
+            reading (e.g. an idle 0 mW PoE port) never refreshes, leaving the
+            integration no samples and no way to tell "constant" from "stale".
     """
 
     suffix: str
@@ -58,6 +62,7 @@ class SensorDef:
     entity_category: str | None = None
     enabled_by_default: bool = True
     attributes: bool = False
+    force_update: bool = False
 
 
 @dataclass(frozen=True)
@@ -169,6 +174,8 @@ def discovery_payload(
         config["icon"] = sensor.icon
     if sensor.entity_category:
         config["entity_category"] = sensor.entity_category
+    if sensor.force_update:
+        config["force_update"] = True
     if sensor.attributes:
         config["json_attributes_topic"] = attributes_topic(state_topic, sensor.suffix)
     return config
