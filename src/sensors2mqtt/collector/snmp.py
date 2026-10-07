@@ -141,6 +141,7 @@ class BoxWalkDef:
         unit: Unit of measurement.
         device_class: HA device class. None for RPM.
         icon: MDI icon override. None uses default.
+        force_update: Have HA record every poll (see SensorDef.force_update).
     """
 
     kind: str
@@ -148,6 +149,7 @@ class BoxWalkDef:
     unit: str
     device_class: str | None = None
     icon: str | None = None
+    force_update: bool = False
 
 
 @dataclass(frozen=True)
@@ -232,7 +234,7 @@ def _box_walks(base: str) -> list[BoxWalkDef]:
         BoxWalkDef(kind="temp", base_oid=f"{base}.15.1.3", unit="°C",
                    device_class="temperature"),
         BoxWalkDef(kind="psu_power", base_oid=f"{base}.8.1.5", unit="W",
-                   device_class="power"),
+                   device_class="power", force_update=True),
     ]
 
 
@@ -1018,6 +1020,7 @@ class SnmpCollector:
                     device_class=box.device_class,
                     state_class="measurement",
                     icon=box.icon,
+                    force_update=box.force_update,
                 ))
                 ordinal += 1
 
@@ -1166,6 +1169,10 @@ def _publish_port_discovery(
                 config["icon"] = icon
             if entity_category:
                 config["entity_category"] = entity_category
+            if value_key == "poe_watts":
+                # HA integrates PoE power into energy; it needs every poll
+                # recorded, including the many ports that sit at a constant 0.
+                config["force_update"] = True
 
             client.publish(config_topic, _json.dumps(config), retain=True)
             count += 1
